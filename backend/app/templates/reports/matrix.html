@@ -1,0 +1,202 @@
+{% extends "base.html" %}
+{% block title %}カテゴリ×グループ マトリックス{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>カテゴリ × グループ マトリックス</h1>
+  <form method="get" action="/reports/matrix" class="inline-form">
+    <input type="number" name="year" value="{{ year }}" min="2000" max="2099" class="input-sm" style="width:80px">年
+    <select name="month" class="input-sm">
+      {% for m in range(1, 13) %}
+      <option value="{{ m }}" {% if m == month %}selected{% endif %}>{{ m }}月</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn-secondary">表示</button>
+  </form>
+</div>
+
+<div class="matrix-meta">
+  {{ year }}年{{ month }}月 &nbsp;|&nbsp;
+  収入合計: <strong class="amount-income">¥{{ "{:,}".format(data.income_grand_total) }}</strong>
+  &nbsp;/&nbsp;
+  支出合計: <strong class="amount-expense">¥{{ "{:,}".format(data.expense_grand_total) }}</strong>
+</div>
+
+{% if data.income_categories or data.expense_categories %}
+<div class="matrix-wrap" x-data="{ open: {} }">
+  <table class="table matrix-table">
+    <thead>
+      <tr>
+        <th class="col-category">カテゴリ</th>
+        {% for grp in data.groups %}
+        <th class="col-amount text-right">{{ grp.name }}</th>
+        {% endfor %}
+        {% if data.has_no_group %}
+        <th class="col-amount text-right text-muted">グループなし</th>
+        {% endif %}
+        <th class="col-total text-right">合計</th>
+      </tr>
+    </thead>
+    <tbody>
+
+      {# ══ 収入セクション ══ #}
+      {% if data.income_categories %}
+      <tr class="matrix-section-header matrix-income-header">
+        <td colspan="{{ data.groups | length + (2 if data.has_no_group else 1) + 1 }}">収入</td>
+      </tr>
+      {% for cat in data.income_categories %}
+      {# 親行 #}
+      <tr class="matrix-parent-row matrix-income-row"
+          @click="open[{{ cat.cat_id }}] = !open[{{ cat.cat_id }}]"
+          :class="open[{{ cat.cat_id }}] ? 'is-open' : ''"
+          style="cursor:{% if cat.children %}pointer{% else %}default{% endif %}">
+        <td class="col-category">
+          <span class="toggle-icon">
+            {% if cat.children %}<span x-text="open[{{ cat.cat_id }}] ? '▼' : '▶'"></span>{% endif %}
+          </span>
+          <strong>{{ cat.name }}</strong>
+        </td>
+        {% for grp in data.groups %}
+        {% set amt = cat.cells.get(grp.id, 0) %}
+        <td class="col-amount text-right amount-income{% if amt %} amt-clickable{% endif %}"
+            @click.stop="{% if amt %}$store.detailModal.show({year:{{ year }},month:{{ month }},category_id:{{ cat.cat_id }},group_id:{{ grp.id }},title:'{{ cat.name }} | {{ grp.name }} {{ year }}年{{ month }}月'}){% endif %}">
+          {% if amt %}¥{{ "{:,}".format(amt) }}{% endif %}
+        </td>
+        {% endfor %}
+        {% if data.has_no_group %}
+        {% set amt = cat.cells.get(none, 0) %}
+        <td class="col-amount text-right amount-income text-muted{% if amt %} amt-clickable{% endif %}"
+            @click.stop="{% if amt %}$store.detailModal.show({year:{{ year }},month:{{ month }},category_id:{{ cat.cat_id }},title:'{{ cat.name }} グループなし {{ year }}年{{ month }}月'}){% endif %}">
+          {% if amt %}¥{{ "{:,}".format(amt) }}{% endif %}
+        </td>
+        {% endif %}
+        <td class="col-total text-right amount-income{% if cat.row_total %} amt-clickable{% endif %}"
+            @click.stop="{% if cat.row_total %}$store.detailModal.show({year:{{ year }},month:{{ month }},category_id:{{ cat.cat_id }},title:'{{ cat.name }} {{ year }}年{{ month }}月'}){% endif %}">
+          {% if cat.row_total %}¥{{ "{:,}".format(cat.row_total) }}{% endif %}
+        </td>
+      </tr>
+      {# 子行 #}
+      {% for child in cat.children %}
+      <tr class="matrix-child-row" x-show="open[{{ cat.cat_id }}]" x-cloak>
+        <td class="col-category" style="padding-left: 2em;">{{ child.name }}</td>
+        {% for grp in data.groups %}
+        {% set amt = child.cells.get(grp.id, 0) %}
+        <td class="col-amount text-right amount-income{% if amt %} amt-clickable{% endif %}"
+            @click.stop="{% if amt %}$store.detailModal.show({year:{{ year }},month:{{ month }},category_id:{{ child.cat_id }},group_id:{{ grp.id }},title:'{{ child.name }} | {{ grp.name }} {{ year }}年{{ month }}月'}){% endif %}">
+          {% if amt %}¥{{ "{:,}".format(amt) }}{% endif %}
+        </td>
+        {% endfor %}
+        {% if data.has_no_group %}
+        {% set amt = child.cells.get(none, 0) %}
+        <td class="col-amount text-right amount-income text-muted{% if amt %} amt-clickable{% endif %}"
+            @click.stop="{% if amt %}$store.detailModal.show({year:{{ year }},month:{{ month }},category_id:{{ child.cat_id }},title:'{{ child.name }} グループなし {{ year }}年{{ month }}月'}){% endif %}">
+          {% if amt %}¥{{ "{:,}".format(amt) }}{% endif %}
+        </td>
+        {% endif %}
+        <td class="col-total text-right amount-income{% if child.row_total %} amt-clickable{% endif %}"
+            @click.stop="{% if child.row_total %}$store.detailModal.show({year:{{ year }},month:{{ month }},category_id:{{ child.cat_id }},title:'{{ child.name }} {{ year }}年{{ month }}月'}){% endif %}">
+          {% if child.row_total %}¥{{ "{:,}".format(child.row_total) }}{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      {% endfor %}
+      {# 収入合計行 #}
+      <tr class="matrix-subtotal-row matrix-income-subtotal">
+        <td class="col-category"><strong>収入計</strong></td>
+        {% for grp in data.groups %}
+        {% set amt = data.income_col_totals.get(grp.id, 0) %}
+        <td class="col-total text-right amount-income">{% if amt %}<strong>¥{{ "{:,}".format(amt) }}</strong>{% endif %}</td>
+        {% endfor %}
+        {% if data.has_no_group %}
+        {% set amt = data.income_col_totals.get(none, 0) %}
+        <td class="col-total text-right amount-income text-muted">{% if amt %}<strong>¥{{ "{:,}".format(amt) }}</strong>{% endif %}</td>
+        {% endif %}
+        <td class="col-total text-right amount-income"><strong>¥{{ "{:,}".format(data.income_grand_total) }}</strong></td>
+      </tr>
+      {% endif %}
+
+      {# ══ 支出セクション ══ #}
+      {% if data.expense_categories %}
+      <tr class="matrix-section-header matrix-expense-header">
+        <td colspan="{{ data.groups | length + (2 if data.has_no_group else 1) + 1 }}">支出</td>
+      </tr>
+      {% for cat in data.expense_categories %}
+      {# 親行 #}
+      <tr class="matrix-parent-row matrix-expense-row"
+          @click="open[{{ cat.cat_id }}] = !open[{{ cat.cat_id }}]"
+          :class="open[{{ cat.cat_id }}] ? 'is-open' : ''"
+          style="cursor:{% if cat.children %}pointer{% else %}default{% endif %}">
+        <td class="col-category">
+          <span class="toggle-icon">
+            {% if cat.children %}<span x-text="open[{{ cat.cat_id }}] ? '▼' : '▶'"></span>{% endif %}
+          </span>
+          <strong>{{ cat.name }}</strong>
+        </td>
+        {% for grp in data.groups %}
+        {% set amt = cat.cells.get(grp.id, 0) %}
+        <td class="col-amount text-right amount-expense{% if amt %} amt-clickable{% endif %}"
+            @click.stop="{% if amt %}$store.detailModal.show({year:{{ year }},month:{{ month }},category_id:{{ cat.cat_id }},group_id:{{ grp.id }},title:'{{ cat.name }} | {{ grp.name }} {{ year }}年{{ month }}月'}){% endif %}">
+          {% if amt %}¥{{ "{:,}".format(amt) }}{% endif %}
+        </td>
+        {% endfor %}
+        {% if data.has_no_group %}
+        {% set amt = cat.cells.get(none, 0) %}
+        <td class="col-amount text-right amount-expense text-muted{% if amt %} amt-clickable{% endif %}"
+            @click.stop="{% if amt %}$store.detailModal.show({year:{{ year }},month:{{ month }},category_id:{{ cat.cat_id }},title:'{{ cat.name }} グループなし {{ year }}年{{ month }}月'}){% endif %}">
+          {% if amt %}¥{{ "{:,}".format(amt) }}{% endif %}
+        </td>
+        {% endif %}
+        <td class="col-total text-right amount-expense{% if cat.row_total %} amt-clickable{% endif %}"
+            @click.stop="{% if cat.row_total %}$store.detailModal.show({year:{{ year }},month:{{ month }},category_id:{{ cat.cat_id }},title:'{{ cat.name }} {{ year }}年{{ month }}月'}){% endif %}">
+          {% if cat.row_total %}¥{{ "{:,}".format(cat.row_total) }}{% endif %}
+        </td>
+      </tr>
+      {# 子行 #}
+      {% for child in cat.children %}
+      <tr class="matrix-child-row" x-show="open[{{ cat.cat_id }}]" x-cloak>
+        <td class="col-category" style="padding-left: 2em;">{{ child.name }}</td>
+        {% for grp in data.groups %}
+        {% set amt = child.cells.get(grp.id, 0) %}
+        <td class="col-amount text-right amount-expense{% if amt %} amt-clickable{% endif %}"
+            @click.stop="{% if amt %}$store.detailModal.show({year:{{ year }},month:{{ month }},category_id:{{ child.cat_id }},group_id:{{ grp.id }},title:'{{ child.name }} | {{ grp.name }} {{ year }}年{{ month }}月'}){% endif %}">
+          {% if amt %}¥{{ "{:,}".format(amt) }}{% endif %}
+        </td>
+        {% endfor %}
+        {% if data.has_no_group %}
+        {% set amt = child.cells.get(none, 0) %}
+        <td class="col-amount text-right amount-expense text-muted{% if amt %} amt-clickable{% endif %}"
+            @click.stop="{% if amt %}$store.detailModal.show({year:{{ year }},month:{{ month }},category_id:{{ child.cat_id }},title:'{{ child.name }} グループなし {{ year }}年{{ month }}月'}){% endif %}">
+          {% if amt %}¥{{ "{:,}".format(amt) }}{% endif %}
+        </td>
+        {% endif %}
+        <td class="col-total text-right amount-expense{% if child.row_total %} amt-clickable{% endif %}"
+            @click.stop="{% if child.row_total %}$store.detailModal.show({year:{{ year }},month:{{ month }},category_id:{{ child.cat_id }},title:'{{ child.name }} {{ year }}年{{ month }}月'}){% endif %}">
+          {% if child.row_total %}¥{{ "{:,}".format(child.row_total) }}{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      {% endfor %}
+      {# 支出合計行 #}
+      <tr class="matrix-subtotal-row matrix-expense-subtotal">
+        <td class="col-category"><strong>支出計</strong></td>
+        {% for grp in data.groups %}
+        {% set amt = data.expense_col_totals.get(grp.id, 0) %}
+        <td class="col-total text-right amount-expense">{% if amt %}<strong>¥{{ "{:,}".format(amt) }}</strong>{% endif %}</td>
+        {% endfor %}
+        {% if data.has_no_group %}
+        {% set amt = data.expense_col_totals.get(none, 0) %}
+        <td class="col-total text-right amount-expense text-muted">{% if amt %}<strong>¥{{ "{:,}".format(amt) }}</strong>{% endif %}</td>
+        {% endif %}
+        <td class="col-total text-right amount-expense"><strong>¥{{ "{:,}".format(data.expense_grand_total) }}</strong></td>
+      </tr>
+      {% endif %}
+
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="card">
+  <p class="text-center">{{ year }}年{{ month }}月のデータがありません。</p>
+</div>
+{% endif %}
+{% endblock %}

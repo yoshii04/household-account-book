@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block title %}過去1年収支 主要費目グラフ{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>過去1年収支 主要費目グラフ</h1>
+  <form method="get" action="/reports/yearly-trend-chart" class="inline-form">
+    <label style="font-size:13px;color:#64748b;">集計終了月</label>
+    <input type="number" name="year" value="{{ year }}" min="2000" max="2099" class="input-sm" style="width:80px">年
+    <select name="month" class="input-sm">
+      {% for m in range(1, 13) %}
+      <option value="{{ m }}" {% if m == month %}selected{% endif %}>{{ m }}月</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn-secondary">表示</button>
+  </form>
+</div>
+
+<p class="subtitle" style="margin-bottom:12px;color:#64748b;font-size:13px;">
+  {{ data.months[0].year }}年{{ data.months[0].month }}月 〜 {{ data.end_year }}年{{ data.end_month }}月（12ヶ月）
+</p>
+
+{% if not income_top5 and not expense_top5 %}
+<div class="card">
+  <p class="text-center">対象期間のデータがありません。</p>
+</div>
+{% else %}
+
+{% if income_top5 %}
+<div class="card" style="margin-bottom:24px;">
+  <h2 style="margin-bottom:16px;font-size:16px;font-weight:600;color:#1e40af;">
+    収入 TOP{{ income_top5 | length }}
+  </h2>
+  <div style="position:relative;height:320px;">
+    <canvas id="incomeChart"></canvas>
+  </div>
+  <div style="overflow-x:auto;">
+    <table class="trend-table" style="margin-top:16px;font-size:12px;">
+      <thead>
+        <tr>
+          <th class="col-category year-header" rowspan="2">カテゴリ</th>
+          {% for span in data.year_spans %}
+          <th class="year-header" colspan="{{ span.count }}">{{ span.year }}年</th>
+          {% endfor %}
+          <th class="col-total year-header">年間計</th>
+        </tr>
+        <tr>
+          {% for ym in data.months %}<th class="col-month">{{ ym.month }}月</th>{% endfor %}
+          <th class="col-total"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for cat in income_top5 %}
+        <tr>
+          <td class="col-category"><strong>{{ cat.name }}</strong></td>
+          {% for ym in data.months %}
+          {% set amt = cat.cells.get(ym.key, 0) %}
+          <td class="col-month amount-income">{% if amt %}¥{{ "{:,}".format(amt) }}{% endif %}</td>
+          {% endfor %}
+          <td class="col-total amount-income">¥{{ "{:,}".format(cat.row_total) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if expense_top5 %}
+<div class="card">
+  <h2 style="margin-bottom:16px;font-size:16px;font-weight:600;color:#991b1b;">
+    支出 TOP{{ expense_top5 | length }}（Bカテゴリ）
+  </h2>
+  <div style="position:relative;height:320px;">
+    <canvas id="expenseChart"></canvas>
+  </div>
+  <div style="overflow-x:auto;">
+    <table class="trend-table" style="margin-top:16px;font-size:12px;">
+      <thead>
+        <tr>
+          <th class="col-category year-header" rowspan="2">カテゴリ</th>
+          {% for span in data.year_spans %}
+          <th class="year-header" colspan="{{ span.count }}">{{ span.year }}年</th>
+          {% endfor %}
+          <th class="col-total year-header">年間計</th>
+        </tr>
+        <tr>
+          {% for ym in data.months %}<th class="col-month">{{ ym.month }}月</th>{% endfor %}
+          <th class="col-total"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for cat in expense_top5 %}
+        <tr>
+          <td class="col-category"><strong>{{ cat.name }}</strong></td>
+          {% for ym in data.months %}
+          {% set amt = cat.cells.get(ym.key, 0) %}
+          <td class="col-month amount-expense">{% if amt %}¥{{ "{:,}".format(amt) }}{% endif %}</td>
+          {% endfor %}
+          <td class="col-total amount-expense">¥{{ "{:,}".format(cat.row_total) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const months = {{ data.months | tojson }};
+  const labels = months.map(m => m.year + '/' + m.month);
+
+  const incomeColors = ['#3b82f6', '#22c55e', '#f59e0b', '#8b5cf6', '#06b6d4'];
+  const expenseColors = ['#ef4444', '#f97316', '#eab308', '#84cc16', '#14b8a6'];
+
+  function makeDatasets(cats, colors) {
+    return cats.map((cat, i) => ({
+      label: cat.name,
+      data: months.map(m => cat.cells[m.key] || 0),
+      borderColor: colors[i % colors.length],
+      backgroundColor: colors[i % colors.length] + '33',
+      borderWidth: 2,
+      pointRadius: 3,
+      pointHoverRadius: 5,
+      tension: 0.3,
+      fill: false,
+    }));
+  }
+
+  const chartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { position: 'top' },
+      tooltip: {
+        callbacks: {
+          label: ctx => ' ' + ctx.dataset.label + ': ¥' + ctx.raw.toLocaleString(),
+        },
+      },
+    },
+    scales: {
+      x: { grid: { color: '#f1f5f9' } },
+      y: {
+        beginAtZero: true,
+        ticks: { callback: v => '¥' + v.toLocaleString() },
+        grid: { color: '#f1f5f9' },
+      },
+    },
+  };
+
+  {% if income_top5 %}
+  const incomeTop5 = {{ income_top5 | tojson }};
+  new Chart(document.getElementById('incomeChart'), {
+    type: 'line',
+    data: { labels, datasets: makeDatasets(incomeTop5, incomeColors) },
+    options: chartOptions,
+  });
+  {% endif %}
+
+  {% if expense_top5 %}
+  const expenseTop5 = {{ expense_top5 | tojson }};
+  new Chart(document.getElementById('expenseChart'), {
+    type: 'line',
+    data: { labels, datasets: makeDatasets(expenseTop5, expenseColors) },
+    options: chartOptions,
+  });
+  {% endif %}
+})();
+</script>
+{% endblock %}

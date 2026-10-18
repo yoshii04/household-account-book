@@ -1,0 +1,182 @@
+{% extends "base.html" %}
+{% block title %}前年同月比{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>前年同月比</h1>
+  <form method="get" action="/reports/comparison" class="inline-form">
+    <input type="number" name="year" value="{{ year }}" min="2000" max="2099" class="input-sm" style="width:80px">年
+    <select name="month" class="input-sm">
+      {% for m in range(1, 13) %}
+      <option value="{{ m }}" {% if m == month %}selected{% endif %}>{{ m }}月</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn-secondary">表示</button>
+  </form>
+</div>
+
+<p class="subtitle">{{ data.last_year }}年{{ month }}月 vs {{ data.year }}年{{ month }}月</p>
+
+<div x-data="{ open: {}, parentsOnly: false }">
+  <div style="margin-bottom: 0.75rem;">
+    <button
+      class="btn-secondary"
+      @click="parentsOnly = !parentsOnly"
+      x-text="parentsOnly ? '子カテゴリを表示' : '親カテゴリのみ表示'"
+    ></button>
+  </div>
+
+  <table class="table comparison-table">
+    <thead>
+      <tr>
+        <th>費目</th>
+        <th class="text-right">{{ data.last_year }}年</th>
+        <th class="text-right">{{ data.year }}年</th>
+        <th class="text-right">増減額</th>
+        <th class="text-right">増減率</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% if data.income_categories %}
+      <tr style="background:#f0f8f0;">
+        <td colspan="5"><strong>── 収入 ──</strong></td>
+      </tr>
+      {% for cat in data.income_categories %}
+      <tr class="parent-row"
+          @click="open[{{ cat.cat_id }}] = !open[{{ cat.cat_id }}]"
+          style="cursor:{% if cat.children %}pointer{% else %}default{% endif %}">
+        <td>
+          <span class="toggle-icon" x-show="!parentsOnly" x-cloak
+            x-text="open[{{ cat.cat_id }}] ? '▼' : '{% if cat.children %}▶{% endif %}'"></span>
+          <strong>{{ cat.name }}</strong>
+        </td>
+        <td class="text-right{% if cat.last_year_income %} amt-clickable{% endif %}"
+            @click.stop="{% if cat.last_year_income %}$store.detailModal.show({year:{{ data.last_year }},month:{{ month }},category_id:{{ cat.cat_id }},title:'{{ cat.name }} {{ data.last_year }}年{{ month }}月'}){% endif %}">
+          {% if cat.last_year_income %}¥{{ "{:,}".format(cat.last_year_income) }}{% endif %}
+        </td>
+        <td class="text-right{% if cat.this_year_income %} amt-clickable{% endif %}"
+            @click.stop="{% if cat.this_year_income %}$store.detailModal.show({year:{{ data.year }},month:{{ month }},category_id:{{ cat.cat_id }},title:'{{ cat.name }} {{ data.year }}年{{ month }}月'}){% endif %}">
+          {% if cat.this_year_income %}¥{{ "{:,}".format(cat.this_year_income) }}{% endif %}
+        </td>
+        <td class="text-right {% if cat.diff_income > 0 %}amount-income{% elif cat.diff_income < 0 %}amount-expense{% endif %}">
+          {% if cat.diff_income %}{% if cat.diff_income > 0 %}+{% endif %}¥{{ "{:,}".format(cat.diff_income) }}{% endif %}
+        </td>
+        <td class="text-right {% if cat.ratio_income and cat.ratio_income > 0 %}amount-income{% elif cat.ratio_income and cat.ratio_income < 0 %}amount-expense{% endif %}">
+          {% if cat.ratio_income is not none %}{% if cat.ratio_income > 0 %}+{% endif %}{{ cat.ratio_income }}%{% else %}—{% endif %}
+        </td>
+      </tr>
+      {% for child in cat.children %}
+      <tr class="child-row"
+          x-show="!parentsOnly && open[{{ cat.cat_id }}]"
+          x-cloak>
+        <td style="padding-left:2em">{{ child.name }}</td>
+        <td class="text-right{% if child.last_year_income %} amt-clickable{% endif %}"
+            @click.stop="{% if child.last_year_income %}$store.detailModal.show({year:{{ data.last_year }},month:{{ month }},category_id:{{ child.cat_id }},title:'{{ child.name }} {{ data.last_year }}年{{ month }}月'}){% endif %}">
+          {% if child.last_year_income %}¥{{ "{:,}".format(child.last_year_income) }}{% endif %}
+        </td>
+        <td class="text-right{% if child.this_year_income %} amt-clickable{% endif %}"
+            @click.stop="{% if child.this_year_income %}$store.detailModal.show({year:{{ data.year }},month:{{ month }},category_id:{{ child.cat_id }},title:'{{ child.name }} {{ data.year }}年{{ month }}月'}){% endif %}">
+          {% if child.this_year_income %}¥{{ "{:,}".format(child.this_year_income) }}{% endif %}
+        </td>
+        <td class="text-right {% if child.diff_income > 0 %}amount-income{% elif child.diff_income < 0 %}amount-expense{% endif %}">
+          {% if child.diff_income %}{% if child.diff_income > 0 %}+{% endif %}¥{{ "{:,}".format(child.diff_income) }}{% endif %}
+        </td>
+        <td class="text-right {% if child.ratio_income and child.ratio_income > 0 %}amount-income{% elif child.ratio_income and child.ratio_income < 0 %}amount-expense{% endif %}">
+          {% if child.ratio_income is not none %}{% if child.ratio_income > 0 %}+{% endif %}{{ child.ratio_income }}%{% else %}—{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      {% endfor %}
+      {% endif %}
+
+      {% if data.expense_categories %}
+      <tr style="background:#fff0f0;">
+        <td colspan="5"><strong>── 支出 ──</strong></td>
+      </tr>
+      {% for cat in data.expense_categories %}
+      <tr class="parent-row {% if cat.diff_expense > 5000 %}highlight-up{% elif cat.diff_expense < -5000 %}highlight-down{% endif %}"
+          @click="open[{{ cat.cat_id }}] = !open[{{ cat.cat_id }}]"
+          style="cursor:{% if cat.children %}pointer{% else %}default{% endif %}">
+        <td>
+          <span class="toggle-icon" x-show="!parentsOnly" x-cloak
+            x-text="open[{{ cat.cat_id }}] ? '▼' : '{% if cat.children %}▶{% endif %}'"></span>
+          <strong>{{ cat.name }}</strong>
+        </td>
+        <td class="text-right{% if cat.last_year_expense %} amt-clickable{% endif %}"
+            @click.stop="{% if cat.last_year_expense %}$store.detailModal.show({year:{{ data.last_year }},month:{{ month }},category_id:{{ cat.cat_id }},title:'{{ cat.name }} {{ data.last_year }}年{{ month }}月'}){% endif %}">
+          {% if cat.last_year_expense %}¥{{ "{:,}".format(cat.last_year_expense) }}{% endif %}
+        </td>
+        <td class="text-right{% if cat.this_year_expense %} amt-clickable{% endif %}"
+            @click.stop="{% if cat.this_year_expense %}$store.detailModal.show({year:{{ data.year }},month:{{ month }},category_id:{{ cat.cat_id }},title:'{{ cat.name }} {{ data.year }}年{{ month }}月'}){% endif %}">
+          {% if cat.this_year_expense %}¥{{ "{:,}".format(cat.this_year_expense) }}{% endif %}
+        </td>
+        <td class="text-right {% if cat.diff_expense > 0 %}amount-expense{% elif cat.diff_expense < 0 %}amount-income{% endif %}">
+          {% if cat.diff_expense %}{% if cat.diff_expense > 0 %}+{% endif %}¥{{ "{:,}".format(cat.diff_expense) }}{% endif %}
+        </td>
+        <td class="text-right {% if cat.ratio_expense and cat.ratio_expense > 0 %}amount-expense{% elif cat.ratio_expense and cat.ratio_expense < 0 %}amount-income{% endif %}">
+          {% if cat.ratio_expense is not none %}{% if cat.ratio_expense > 0 %}+{% endif %}{{ cat.ratio_expense }}%{% else %}—{% endif %}
+        </td>
+      </tr>
+      {% for child in cat.children %}
+      <tr class="child-row {% if child.diff_expense > 5000 %}highlight-up{% elif child.diff_expense < -5000 %}highlight-down{% endif %}"
+          x-show="!parentsOnly && open[{{ cat.cat_id }}]"
+          x-cloak>
+        <td style="padding-left:2em">{{ child.name }}</td>
+        <td class="text-right{% if child.last_year_expense %} amt-clickable{% endif %}"
+            @click.stop="{% if child.last_year_expense %}$store.detailModal.show({year:{{ data.last_year }},month:{{ month }},category_id:{{ child.cat_id }},title:'{{ child.name }} {{ data.last_year }}年{{ month }}月'}){% endif %}">
+          {% if child.last_year_expense %}¥{{ "{:,}".format(child.last_year_expense) }}{% endif %}
+        </td>
+        <td class="text-right{% if child.this_year_expense %} amt-clickable{% endif %}"
+            @click.stop="{% if child.this_year_expense %}$store.detailModal.show({year:{{ data.year }},month:{{ month }},category_id:{{ child.cat_id }},title:'{{ child.name }} {{ data.year }}年{{ month }}月'}){% endif %}">
+          {% if child.this_year_expense %}¥{{ "{:,}".format(child.this_year_expense) }}{% endif %}
+        </td>
+        <td class="text-right {% if child.diff_expense > 0 %}amount-expense{% elif child.diff_expense < 0 %}amount-income{% endif %}">
+          {% if child.diff_expense %}{% if child.diff_expense > 0 %}+{% endif %}¥{{ "{:,}".format(child.diff_expense) }}{% endif %}
+        </td>
+        <td class="text-right {% if child.ratio_expense and child.ratio_expense > 0 %}amount-expense{% elif child.ratio_expense and child.ratio_expense < 0 %}amount-income{% endif %}">
+          {% if child.ratio_expense is not none %}{% if child.ratio_expense > 0 %}+{% endif %}{{ child.ratio_expense }}%{% else %}—{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      {% endfor %}
+      {% endif %}
+
+      {% if data.income_categories or data.expense_categories %}
+      <tr style="background:#e8f4e8; font-weight:bold;">
+        <td>収入計</td>
+        <td class="text-right">{% if data.total_last_income %}¥{{ "{:,}".format(data.total_last_income) }}{% endif %}</td>
+        <td class="text-right">{% if data.total_this_income %}¥{{ "{:,}".format(data.total_this_income) }}{% endif %}</td>
+        <td class="text-right {% if data.diff_income > 0 %}amount-income{% elif data.diff_income < 0 %}amount-expense{% endif %}">
+          {% if data.diff_income %}{% if data.diff_income > 0 %}+{% endif %}¥{{ "{:,}".format(data.diff_income) }}{% endif %}
+        </td>
+        <td></td>
+      </tr>
+      <tr style="background:#fce8e8; font-weight:bold;">
+        <td>支出計</td>
+        <td class="text-right">{% if data.total_last_expense %}¥{{ "{:,}".format(data.total_last_expense) }}{% endif %}</td>
+        <td class="text-right">{% if data.total_this_expense %}¥{{ "{:,}".format(data.total_this_expense) }}{% endif %}</td>
+        <td class="text-right {% if data.diff_expense_total > 0 %}amount-expense{% elif data.diff_expense_total < 0 %}amount-income{% endif %}">
+          {% if data.diff_expense_total %}{% if data.diff_expense_total > 0 %}+{% endif %}¥{{ "{:,}".format(data.diff_expense_total) }}{% endif %}
+        </td>
+        <td></td>
+      </tr>
+      <tr style="background:#e8eaf6; font-weight:bold; border-top: 2px solid #9fa8da;">
+        <td>収支（収入 − 支出）</td>
+        <td class="text-right {% if data.total_last_balance >= 0 %}amount-income{% else %}amount-expense{% endif %}">
+          {% if data.total_last_balance > 0 %}+{% endif %}¥{{ "{:,}".format(data.total_last_balance) }}
+        </td>
+        <td class="text-right {% if data.total_this_balance >= 0 %}amount-income{% else %}amount-expense{% endif %}">
+          {% if data.total_this_balance > 0 %}+{% endif %}¥{{ "{:,}".format(data.total_this_balance) }}
+        </td>
+        <td class="text-right {% if data.diff_balance > 0 %}amount-income{% elif data.diff_balance < 0 %}amount-expense{% endif %}">
+          {% if data.diff_balance %}{% if data.diff_balance > 0 %}+{% endif %}¥{{ "{:,}".format(data.diff_balance) }}{% endif %}
+        </td>
+        <td></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="5" class="text-center">データなし</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

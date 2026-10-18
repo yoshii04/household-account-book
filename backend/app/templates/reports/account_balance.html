@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block title %}アカウント別金額集計{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>アカウント別金額集計</h1>
+  <form method="get" action="/reports/account-balance" class="inline-form">
+    <label>集計日：</label>
+    <input type="date" name="as_of_date" value="{{ as_of_date }}" class="input-sm">
+    <label style="margin-left:1rem; cursor:pointer;">
+      <input type="checkbox" name="show_zero" value="true"
+             {% if show_zero %}checked{% endif %}
+             onchange="this.form.submit()">
+      残高0円の口座も表示
+    </label>
+    <button type="submit" class="btn-secondary">表示</button>
+  </form>
+</div>
+
+<p style="color:#666; margin-bottom:1rem;">
+  {{ as_of_date }} 時点（開始日が設定されているアカウントはその日以降の取引を集計）
+</p>
+
+<div class="summary-cards">
+  <div class="card card-income">
+    <div class="card-label">収入合計</div>
+    <div class="card-amount">¥{{ "{:,}".format(data.grand_income) }}</div>
+  </div>
+  <div class="card card-expense">
+    <div class="card-label">支出合計</div>
+    <div class="card-amount">¥{{ "{:,}".format(data.grand_expense) }}</div>
+  </div>
+  <div class="card card-balance {% if data.grand_balance >= 0 %}positive{% else %}negative{% endif %}">
+    <div class="card-label">差引残高（初期残高・調整金額含む）</div>
+    <div class="card-amount">¥{{ "{:,}".format(data.grand_balance) }}</div>
+  </div>
+</div>
+
+{% if data.grouped %}
+
+{# ── 分類別集計（分類が設定されているアカウントがある場合のみ表示） ── #}
+{% if data.classified_groups %}
+<h2 style="margin-top:2rem; margin-bottom:0.75rem; font-size:1rem; color:#334155;">分類別集計</h2>
+<table class="table" style="margin-bottom:2rem;">
+  <thead>
+    <tr>
+      <th>分類</th>
+      <th class="text-right">初期残高</th>
+      <th class="text-right">調整金額</th>
+      <th class="text-right">収入累計</th>
+      <th class="text-right">支出累計</th>
+      <th class="text-right">差引残高</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for cls in data.classified_groups %}
+    <tr>
+      <td style="font-weight:600;">{{ cls.classification }}</td>
+      <td class="text-right" style="color:#475569;">¥{{ "{:,}".format(cls.subtotal_initial) }}</td>
+      <td class="text-right" style="color:{% if cls.subtotal_adjustment > 0 %}#d97706{% elif cls.subtotal_adjustment < 0 %}#e53e3e{% else %}#94a3b8{% endif %};">
+        {% if cls.subtotal_adjustment != 0 %}{% if cls.subtotal_adjustment > 0 %}+{% endif %}¥{{ "{:,}".format(cls.subtotal_adjustment) }}{% else %}—{% endif %}
+      </td>
+      <td class="text-right amount-income">¥{{ "{:,}".format(cls.subtotal_income) }}</td>
+      <td class="text-right amount-expense">¥{{ "{:,}".format(cls.subtotal_expense) }}</td>
+      <td class="text-right {% if cls.subtotal_balance >= 0 %}amount-income{% else %}amount-expense{% endif %}">¥{{ "{:,}".format(cls.subtotal_balance) }}</td>
+    </tr>
+    {% endfor %}
+    {% if data.unclassified %}
+    <tr style="color:#94a3b8;">
+      <td>（分類なし）</td>
+      <td class="text-right">¥{{ "{:,}".format(data.unclassified | sum(attribute='subtotal_initial')) }}</td>
+      <td class="text-right">—</td>
+      <td class="text-right">¥{{ "{:,}".format(data.unclassified | sum(attribute='subtotal_income')) }}</td>
+      <td class="text-right">¥{{ "{:,}".format(data.unclassified | sum(attribute='subtotal_expense')) }}</td>
+      <td class="text-right">¥{{ "{:,}".format(data.unclassified | sum(attribute='subtotal_balance')) }}</td>
+    </tr>
+    {% endif %}
+    <tr style="background:#e8e8e8; font-weight:bold;">
+      <td class="text-right">合計</td>
+      <td class="text-right" style="color:#475569;">¥{{ "{:,}".format(data.grand_initial) }}</td>
+      <td class="text-right" style="color:#d97706;">
+        {% if data.grand_adjustment != 0 %}{% if data.grand_adjustment > 0 %}+{% endif %}¥{{ "{:,}".format(data.grand_adjustment) }}{% else %}—{% endif %}
+      </td>
+      <td class="text-right amount-income">¥{{ "{:,}".format(data.grand_income) }}</td>
+      <td class="text-right amount-expense">¥{{ "{:,}".format(data.grand_expense) }}</td>
+      <td class="text-right {% if data.grand_balance >= 0 %}amount-income{% else %}amount-expense{% endif %}">¥{{ "{:,}".format(data.grand_balance) }}</td>
+    </tr>
+  </tbody>
+</table>
+{% endif %}
+
+{# ── 種別別明細 ── #}
+<h2 style="margin-bottom:0.75rem; font-size:1rem; color:#334155;">種別別明細</h2>
+<table class="table">
+  <thead>
+    <tr>
+      <th>種別</th>
+      <th>口座名</th>
+      <th>分類</th>
+      <th class="text-right">初期残高</th>
+      <th class="text-right">調整金額</th>
+      <th class="text-right">収入累計</th>
+      <th class="text-right">支出累計</th>
+      <th class="text-right">差引残高</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for group in data.grouped %}
+    {% for acc in group.accounts %}
+    <tr>
+      {% if loop.first %}
+      <td rowspan="{{ group.accounts | length }}" style="vertical-align:middle; background:#f8f8f8; font-weight:bold;">
+        {{ group.type_label }}
+      </td>
+      {% endif %}
+      <td>
+        {{ acc.name }}
+        {% if acc.start_date %}
+        <span style="font-size:11px; color:#94a3b8;">（{{ acc.start_date }} 以降）</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if acc.classification %}
+        <span style="font-size:12px; background:#e8edf2; color:#334155; padding:2px 8px; border-radius:4px;">{{ acc.classification }}</span>
+        {% else %}
+        <span style="color:#cbd5e1;">—</span>
+        {% endif %}
+      </td>
+      <td class="text-right" style="color:#475569;">¥{{ "{:,}".format(acc.initial_balance) }}</td>
+      <td class="text-right" style="color:{% if acc.adjustment_amount > 0 %}#d97706{% elif acc.adjustment_amount < 0 %}#e53e3e{% else %}#94a3b8{% endif %};">
+        {% if acc.adjustment_amount != 0 %}
+          {% if acc.adjustment_amount > 0 %}+{% endif %}¥{{ "{:,}".format(acc.adjustment_amount) }}
+        {% else %}—{% endif %}
+      </td>
+      <td class="text-right amount-income">¥{{ "{:,}".format(acc.total_income) }}</td>
+      <td class="text-right amount-expense">¥{{ "{:,}".format(acc.total_expense) }}</td>
+      <td class="text-right {% if acc.balance >= 0 %}amount-income{% else %}amount-expense{% endif %}">
+        ¥{{ "{:,}".format(acc.balance) }}
+      </td>
+    </tr>
+    {% endfor %}
+    <tr style="background:#f0f0f0; font-weight:bold;">
+      <td colspan="3" class="text-right" style="color:#555;">{{ group.type_label }} 小計</td>
+      <td class="text-right" style="color:#475569;">¥{{ "{:,}".format(group.subtotal_initial) }}</td>
+      <td class="text-right" style="color:#d97706;">
+        {% if group.subtotal_adjustment != 0 %}
+          {% if group.subtotal_adjustment > 0 %}+{% endif %}¥{{ "{:,}".format(group.subtotal_adjustment) }}
+        {% else %}—{% endif %}
+      </td>
+      <td class="text-right amount-income">¥{{ "{:,}".format(group.subtotal_income) }}</td>
+      <td class="text-right amount-expense">¥{{ "{:,}".format(group.subtotal_expense) }}</td>
+      <td class="text-right {% if group.subtotal_balance >= 0 %}amount-income{% else %}amount-expense{% endif %}">
+        ¥{{ "{:,}".format(group.subtotal_balance) }}
+      </td>
+    </tr>
+    {% endfor %}
+    <tr style="background:#e8e8e8; font-weight:bold; font-size:1.05em;">
+      <td colspan="3" class="text-right">合計</td>
+      <td class="text-right" style="color:#475569;">¥{{ "{:,}".format(data.grand_initial) }}</td>
+      <td class="text-right" style="color:#d97706;">
+        {% if data.grand_adjustment != 0 %}
+          {% if data.grand_adjustment > 0 %}+{% endif %}¥{{ "{:,}".format(data.grand_adjustment) }}
+        {% else %}—{% endif %}
+      </td>
+      <td class="text-right amount-income">¥{{ "{:,}".format(data.grand_income) }}</td>
+      <td class="text-right amount-expense">¥{{ "{:,}".format(data.grand_expense) }}</td>
+      <td class="text-right {% if data.grand_balance >= 0 %}amount-income{% else %}amount-expense{% endif %}">
+        ¥{{ "{:,}".format(data.grand_balance) }}
+      </td>
+    </tr>
+  </tbody>
+</table>
+
+{% else %}
+<p class="text-center" style="margin-top:2rem; color:#888;">指定日付以前の取引データがありません。</p>
+{% endif %}
+
+{% endblock %}

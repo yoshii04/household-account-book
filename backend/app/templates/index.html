@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}ダッシュボード{% endblock %}
+
+{% block content %}
+<h1>ダッシュボード — {{ year }}年{{ month }}月</h1>
+
+{% if due_patterns %}
+<div class="due-patterns-banner">
+  <div class="due-patterns-header">
+    <span class="due-patterns-icon">📅</span>
+    <strong>今日の支払いパターン（{{ due_patterns | length }}件）</strong>
+  </div>
+  <div class="due-patterns-list">
+    {% for p in due_patterns %}
+    <div class="due-pattern-item">
+      <div class="due-pattern-info">
+        <span class="due-pattern-name">{{ p.name }}</span>
+        <span class="due-pattern-category text-sm">{{ p.category_full_path }}</span>
+        {% if p.typical_amount %}
+        <span class="due-pattern-amount {% if p.is_income %}amount-income{% else %}amount-expense{% endif %}">
+          {{ "+" if p.is_income else "-" }}¥{{ "{:,}".format(p.typical_amount) }}
+        </span>
+        {% endif %}
+      </div>
+      <a href="/transactions/new?pattern_id={{ p.id }}" class="btn-primary btn-sm">入力する →</a>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+{% if unrecorded_patterns %}
+<div class="unrecorded-patterns-section">
+  <div class="unrecorded-patterns-header">
+    <span class="unrecorded-patterns-icon">⚠️</span>
+    <strong>今月未記録のパターン（{{ unrecorded_patterns | length }}件）</strong>
+  </div>
+  <div class="unrecorded-patterns-list">
+    {% for p in unrecorded_patterns %}
+    <div class="unrecorded-pattern-item">
+      <div class="unrecorded-pattern-info">
+        <span class="unrecorded-pattern-name">{{ p.name }}</span>
+        <span class="unrecorded-pattern-category text-sm">{{ p.category_full_path }}</span>
+        {% if p.typical_amount %}
+        <span class="unrecorded-pattern-amount {% if p.is_income %}amount-income{% else %}amount-expense{% endif %}">
+          {{ "+" if p.is_income else "-" }}¥{{ "{:,}".format(p.typical_amount) }}
+        </span>
+        {% endif %}
+      </div>
+      <a href="/transactions/new?pattern_id={{ p.id }}{% if p.next_payment_date %}&date={{ p.next_payment_date }}{% endif %}" class="btn-primary btn-sm">入力する →</a>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<div class="summary-cards">
+  <div class="card card-income">
+    <div class="card-label">収入</div>
+    <div class="card-amount">¥{{ "{:,}".format(summary.total_income) }}</div>
+  </div>
+  <div class="card card-expense">
+    <div class="card-label">支出</div>
+    <div class="card-amount">¥{{ "{:,}".format(summary.total_expense) }}</div>
+  </div>
+  <div class="card card-balance {% if summary.total_income - summary.total_expense >= 0 %}positive{% else %}negative{% endif %}">
+    <div class="card-label">差引</div>
+    <div class="card-amount">¥{{ "{:,}".format(summary.total_income - summary.total_expense) }}</div>
+  </div>
+</div>
+
+<div class="dashboard-grid">
+  <div class="chart-section">
+    <h2>費目別支出</h2>
+    <canvas id="expenseChart" width="400" height="400"></canvas>
+  </div>
+
+  <div class="recent-section">
+    <h2>直近の取引</h2>
+    <table class="table">
+      <thead>
+        <tr>
+          <th>日付</th>
+          <th>カテゴリ</th>
+          <th>メモ</th>
+          <th class="text-right">支出</th>
+          <th class="text-right">収入</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for tx in recent_items %}
+        <tr>
+          <td>{{ tx.date }}</td>
+          <td>{{ tx.category_full_path }}</td>
+          <td>{{ tx.memo or "" }}</td>
+          <td class="text-right amount-expense">{% if tx.expense_amount %}¥{{ "{:,}".format(tx.expense_amount) }}{% endif %}</td>
+          <td class="text-right amount-income">{% if tx.income_amount %}¥{{ "{:,}".format(tx.income_amount) }}{% endif %}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="text-center">データなし</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    <a href="/transactions?year={{ year }}&month={{ month }}&f=1" class="btn-link">すべて表示 →</a>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const labels = [{% for cat in summary.categories %}"{{ cat.name }}"{% if not loop.last %},{% endif %}{% endfor %}];
+const data = [{% for cat in summary.categories %}{{ cat.total_expense }}{% if not loop.last %},{% endif %}{% endfor %}];
+
+const COLORS = [
+  '#FF6384','#36A2EB','#FFCE56','#4BC0C0','#9966FF',
+  '#FF9F40','#FF6384','#C9CBCF','#7BC8A4','#E8A838',
+];
+
+new Chart(document.getElementById('expenseChart'), {
+  type: 'doughnut',
+  data: {
+    labels,
+    datasets: [{
+      data,
+      backgroundColor: COLORS.slice(0, labels.length),
+    }]
+  },
+  options: {
+    plugins: {
+      legend: { position: 'bottom' },
+    }
+  }
+});
+</script>
+{% endblock %}

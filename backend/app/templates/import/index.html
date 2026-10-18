@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+{% block title %}インポート{% endblock %}
+
+{% block content %}
+<h1>データインポート</h1>
+
+<div class="card" x-data="importForm()">
+  <h2>Actual.TXT をアップロード</h2>
+  <p class="help-text">UTF-16LE (BOM付き) タブ区切りファイルに対応しています。</p>
+
+  <!-- インポートモード選択 -->
+  <div class="import-mode">
+    <p><strong>インポートモード</strong></p>
+    <label class="radio-label">
+      <input type="radio" name="import_mode" value="replace" x-model="mode">
+      <span class="radio-text">
+        <strong>置換（削除してからインポート）</strong>
+        <small>既存のすべての取引データを削除し、ファイルの内容で置き換えます。重複インポートを修正する場合はこちらを選択してください。</small>
+      </span>
+    </label>
+    <label class="radio-label">
+      <input type="radio" name="import_mode" value="append" x-model="mode">
+      <span class="radio-text">
+        <strong>追加（既存データを保持）</strong>
+        <small>既存データを残したまま、ファイルのデータを追加します。</small>
+      </span>
+    </label>
+    <div x-show="mode === 'replace'" class="alert alert-warning">
+      ⚠ 既存の取引データがすべて削除されます。この操作は取り消せません。
+    </div>
+  </div>
+
+  <!-- ローンデータのオプション -->
+  <div class="import-mode" style="margin-top: 12px;">
+    <p><strong>ローンデータの扱い</strong></p>
+    <label class="radio-label">
+      <input type="radio" name="skip_loan" value="false" x-model="skipLoanStr">
+      <span class="radio-text">
+        <strong>取り込む（デフォルト）</strong>
+        <small>【ﾛｰﾝ】カテゴリの行をそのままインポートします。</small>
+      </span>
+    </label>
+    <label class="radio-label">
+      <input type="radio" name="skip_loan" value="true" x-model="skipLoanStr">
+      <span class="radio-text">
+        <strong>スキップする</strong>
+        <small>【ﾛｰﾝ】カテゴリの行を無視します。「ローン登録」機能で元本を登録済みの場合はこちらを選択してください。</small>
+      </span>
+    </label>
+  </div>
+
+  <div class="upload-area"
+       @dragover.prevent
+       @drop.prevent="onDrop($event)"
+       :class="{ 'dragging': isDragging }"
+       @dragenter="isDragging = true"
+       @dragleave="isDragging = false">
+    <p>ファイルをここにドラッグ＆ドロップ</p>
+    <p>または</p>
+    <label class="btn-secondary">
+      ファイルを選択
+      <input type="file" accept=".txt,.TXT,.tsv,.csv" @change="onFileSelect($event)" style="display:none">
+    </label>
+    <p x-show="selectedFile" class="file-name" x-text="selectedFile?.name"></p>
+  </div>
+
+  <div x-show="selectedFile" class="upload-actions">
+    <button class="btn-primary" @click="doUpload()" :disabled="uploading">
+      <span x-show="!uploading" x-text="mode === 'replace' ? '削除してインポート実行' : 'インポート実行'"></span>
+      <span x-show="uploading">インポート中...</span>
+    </button>
+  </div>
+
+  <!-- 結果表示 -->
+  <div x-show="result" class="import-result" :class="result?.status">
+    <h3 x-text="result?.status === 'success' ? '✓ インポート完了' : (result?.status === 'partial' ? '⚠ 一部インポート' : '✗ エラー')"></h3>
+    <div x-show="result?.mode === 'replace' && result?.deleted_rows > 0" class="deleted-info">
+      <span x-text="`既存データ ${result?.deleted_rows} 件を削除しました`"></span>
+    </div>
+    <div class="result-grid">
+      <div><span class="label">合計行数</span><span x-text="result?.total_rows"></span></div>
+      <div><span class="label">インポート</span><span x-text="result?.imported_rows"></span></div>
+      <div><span class="label">スキップ</span><span x-text="result?.skipped_rows"></span></div>
+      <div><span class="label">エラー</span><span x-text="result?.error_rows"></span></div>
+    </div>
+    <div x-show="result?.skipped_loan_rows > 0" class="deleted-info">
+      <span x-text="`ローンデータ ${result?.skipped_loan_rows} 件をスキップしました`"></span>
+    </div>
+    <div x-show="result?.new_categories?.length > 0">
+      <p><strong>新規カテゴリ:</strong> <span x-text="result?.new_categories?.join(', ')"></span></p>
+    </div>
+    <!-- スキップ行詳細テーブル -->
+    <div x-show="result?.skipped_detail?.length > 0" style="margin-top:1rem;">
+      <p><strong>スキップされた行（取り込めなかった理由）:</strong></p>
+      <table class="table" style="font-size:0.85rem;">
+        <thead>
+          <tr>
+            <th>行番号</th>
+            <th>日付</th>
+            <th>カテゴリ</th>
+            <th>アカウント</th>
+            <th>スキップ理由</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="row in result?.skipped_detail" :key="row.line">
+            <tr>
+              <td x-text="row.line"></td>
+              <td x-text="row.date || '(空)'"></td>
+              <td x-text="row.category || '(空)'"></td>
+              <td x-text="row.account || '(空)'"></td>
+              <td style="color:#c00;" x-text="row.reason"></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- インポート履歴 -->
+<div class="card">
+  <h2>インポート履歴</h2>
+  <table class="table">
+    <thead>
+      <tr>
+        <th>日時</th>
+        <th>ファイル名</th>
+        <th>合計</th>
+        <th>成功</th>
+        <th>スキップ</th>
+        <th>エラー</th>
+        <th>状態</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for log in logs %}
+      <tr>
+        <td>{{ log.imported_at | jst }}</td>
+        <td>{{ log.filename }}</td>
+        <td>{{ log.total_rows }}</td>
+        <td>{{ log.imported_rows }}</td>
+        <td>{{ log.skipped_rows }}</td>
+        <td>{{ log.error_rows }}</td>
+        <td><span class="badge badge-{{ log.status }}">{{ log.status }}</span></td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="text-center">履歴なし</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function importForm() {
+  return {
+    selectedFile: null,
+    isDragging: false,
+    uploading: false,
+    result: null,
+    mode: 'replace',
+    skipLoanStr: 'false',
+
+    get skipLoan() { return this.skipLoanStr === 'true'; },
+
+    onFileSelect(e) {
+      this.selectedFile = e.target.files[0] || null;
+      this.result = null;
+    },
+
+    onDrop(e) {
+      this.isDragging = false;
+      this.selectedFile = e.dataTransfer.files[0] || null;
+      this.result = null;
+    },
+
+    async doUpload() {
+      if (!this.selectedFile) return;
+      if (this.mode === 'replace') {
+        const confirmed = confirm('既存の取引データをすべて削除してからインポートします。よろしいですか？');
+        if (!confirmed) return;
+      }
+      this.uploading = true;
+      this.result = null;
+      try {
+        const form = new FormData();
+        form.append('file', this.selectedFile);
+        form.append('mode', this.mode);
+        form.append('skip_loan', this.skipLoan);
+        const res = await fetch('/api/v1/import/upload', { method: 'POST', body: form });
+        this.result = await res.json();
+        if (res.ok) location.reload();
+      } catch (e) {
+        this.result = { status: 'error', error_detail: e.message };
+      } finally {
+        this.uploading = false;
+      }
+    },
+  };
+}
+</script>
+{% endblock %}

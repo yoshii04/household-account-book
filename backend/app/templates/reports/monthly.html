@@ -1,0 +1,164 @@
+{% extends "base.html" %}
+{% block title %}月次集計{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>月次集計</h1>
+  <form method="get" action="/reports/monthly" class="inline-form">
+    <input type="number" name="year" value="{{ year }}" min="2000" max="2099" class="input-sm" style="width:80px">年
+    <select name="month" class="input-sm">
+      {% for m in range(1, 13) %}
+      <option value="{{ m }}" {% if m == month %}selected{% endif %}>{{ m }}月</option>
+      {% endfor %}
+    </select>
+    <button type="submit" class="btn-secondary">表示</button>
+  </form>
+</div>
+
+<div class="summary-cards">
+  <div class="card card-income">
+    <div class="card-label">収入合計</div>
+    <div class="card-amount">¥{{ "{:,}".format(summary.total_income) }}</div>
+  </div>
+  <div class="card card-expense">
+    <div class="card-label">支出合計</div>
+    <div class="card-amount">¥{{ "{:,}".format(summary.total_expense) }}</div>
+  </div>
+  <div class="card card-balance {% if summary.total_income - summary.total_expense >= 0 %}positive{% else %}negative{% endif %}">
+    <div class="card-label">差引</div>
+    <div class="card-amount">¥{{ "{:,}".format(summary.total_income - summary.total_expense) }}</div>
+  </div>
+</div>
+
+<div class="report-grid">
+  <div>
+    <h2>費目別支出</h2>
+    <table class="table" x-data="{ open: {} }">
+      <thead>
+        <tr>
+          <th>費目</th>
+          <th class="text-right">収入</th>
+          <th class="text-right">支出</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if summary.income_categories %}
+        <tr style="background:#f0f8f0;">
+          <td colspan="3"><strong>── 収入 ──</strong></td>
+        </tr>
+        {% for cat in summary.income_categories %}
+        <tr class="parent-row"
+            @click="open[{{ cat.cat_id }}] = !open[{{ cat.cat_id }}]"
+            style="cursor:{% if cat.children %}pointer{% else %}default{% endif %}">
+          <td>
+            <span class="toggle-icon" x-text="open[{{ cat.cat_id }}] ? '▼' : '{% if cat.children %}▶{% endif %}'"></span>
+            <strong>{{ cat.name }}</strong>
+          </td>
+          <td class="text-right amount-income{% if cat.total_income %} amt-clickable{% endif %}"
+              @click.stop="{% if cat.total_income %}$store.detailModal.show({year:{{ year }},month:{{ month }},category_id:{{ cat.cat_id }},title:'{{ cat.name }} {{ year }}年{{ month }}月'}){% endif %}">
+            {% if cat.total_income %}¥{{ "{:,}".format(cat.total_income) }}{% endif %}
+          </td>
+          <td class="text-right amount-expense{% if cat.total_expense %} amt-clickable{% endif %}"
+              @click.stop="{% if cat.total_expense %}$store.detailModal.show({year:{{ year }},month:{{ month }},category_id:{{ cat.cat_id }},title:'{{ cat.name }} {{ year }}年{{ month }}月'}){% endif %}">
+            {% if cat.total_expense %}¥{{ "{:,}".format(cat.total_expense) }}{% endif %}
+          </td>
+        </tr>
+        {% for child in cat.children %}
+        <tr class="child-row" x-show="open[{{ cat.cat_id }}]" x-cloak>
+          <td style="padding-left: 2em;">{{ child.name }}</td>
+          <td class="text-right amount-income{% if child.total_income %} amt-clickable{% endif %}"
+              @click.stop="{% if child.total_income %}$store.detailModal.show({year:{{ year }},month:{{ month }},category_id:{{ child.cat_id }},title:'{{ child.name }} {{ year }}年{{ month }}月'}){% endif %}">
+            {% if child.total_income %}¥{{ "{:,}".format(child.total_income) }}{% endif %}
+          </td>
+          <td class="text-right amount-expense{% if child.total_expense %} amt-clickable{% endif %}"
+              @click.stop="{% if child.total_expense %}$store.detailModal.show({year:{{ year }},month:{{ month }},category_id:{{ child.cat_id }},title:'{{ child.name }} {{ year }}年{{ month }}月'}){% endif %}">
+            {% if child.total_expense %}¥{{ "{:,}".format(child.total_expense) }}{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+        {% endfor %}
+        {% endif %}
+        {% if summary.expense_categories %}
+        <tr style="background:#fff0f0;">
+          <td colspan="3"><strong>── 支出 ──</strong></td>
+        </tr>
+        {% for cat in summary.expense_categories %}
+        <tr class="parent-row"
+            @click="open[{{ cat.cat_id }}] = !open[{{ cat.cat_id }}]"
+            style="cursor:{% if cat.children %}pointer{% else %}default{% endif %}">
+          <td>
+            <span class="toggle-icon" x-text="open[{{ cat.cat_id }}] ? '▼' : '{% if cat.children %}▶{% endif %}'"></span>
+            <strong>{{ cat.name }}</strong>
+          </td>
+          <td class="text-right amount-income{% if cat.total_income %} amt-clickable{% endif %}"
+              @click.stop="{% if cat.total_income %}$store.detailModal.show({year:{{ year }},month:{{ month }},category_id:{{ cat.cat_id }},title:'{{ cat.name }} {{ year }}年{{ month }}月'}){% endif %}">
+            {% if cat.total_income %}¥{{ "{:,}".format(cat.total_income) }}{% endif %}
+          </td>
+          <td class="text-right amount-expense{% if cat.total_expense %} amt-clickable{% endif %}"
+              @click.stop="{% if cat.total_expense %}$store.detailModal.show({year:{{ year }},month:{{ month }},category_id:{{ cat.cat_id }},title:'{{ cat.name }} {{ year }}年{{ month }}月'}){% endif %}">
+            {% if cat.total_expense %}¥{{ "{:,}".format(cat.total_expense) }}{% endif %}
+          </td>
+        </tr>
+        {% for child in cat.children %}
+        <tr class="child-row" x-show="open[{{ cat.cat_id }}]" x-cloak>
+          <td style="padding-left: 2em;">{{ child.name }}</td>
+          <td class="text-right amount-income{% if child.total_income %} amt-clickable{% endif %}"
+              @click.stop="{% if child.total_income %}$store.detailModal.show({year:{{ year }},month:{{ month }},category_id:{{ child.cat_id }},title:'{{ child.name }} {{ year }}年{{ month }}月'}){% endif %}">
+            {% if child.total_income %}¥{{ "{:,}".format(child.total_income) }}{% endif %}
+          </td>
+          <td class="text-right amount-expense{% if child.total_expense %} amt-clickable{% endif %}"
+              @click.stop="{% if child.total_expense %}$store.detailModal.show({year:{{ year }},month:{{ month }},category_id:{{ child.cat_id }},title:'{{ child.name }} {{ year }}年{{ month }}月'}){% endif %}">
+            {% if child.total_expense %}¥{{ "{:,}".format(child.total_expense) }}{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+        {% endfor %}
+        {% endif %}
+        {% if not summary.income_categories and not summary.expense_categories %}
+        <tr><td colspan="3" class="text-center">データなし</td></tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+  <div>
+    <h2>グラフ</h2>
+    <canvas id="monthlyChart" width="400" height="400"></canvas>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// 支出カテゴリのみ対象、金額降順 Top10
+const allExpenseData = [
+  {% for cat in summary.expense_categories %}
+  {% if cat.total_expense > 0 %}
+  { label: "{{ cat.name }}", value: {{ cat.total_expense }} },
+  {% endif %}
+  {% endfor %}
+];
+allExpenseData.sort((a, b) => b.value - a.value);
+const top10 = allExpenseData.slice(0, 10);
+const labels = top10.map(d => d.label);
+const data = top10.map(d => d.value);
+const COLORS = ['#FF6384','#36A2EB','#FFCE56','#4BC0C0','#9966FF','#FF9F40','#C9CBCF','#7BC8A4','#E8A838','#B5A8D7'];
+
+new Chart(document.getElementById('monthlyChart'), {
+  type: 'bar',
+  data: {
+    labels,
+    datasets: [{
+      label: '支出',
+      data,
+      backgroundColor: COLORS.slice(0, labels.length),
+    }]
+  },
+  options: {
+    indexAxis: 'y',
+    plugins: { legend: { display: false } },
+    scales: { x: { beginAtZero: true } }
+  }
+});
+</script>
+{% endblock %}

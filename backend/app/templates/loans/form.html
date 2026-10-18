@@ -1,0 +1,469 @@
+{% extends "base.html" %}
+{% block title %}ローン返済スケジュール作成{% endblock %}
+
+{% block content %}
+<h1>ローン返済スケジュール作成</h1>
+
+<div x-data="loanForm()" x-cloak>
+
+  <!-- 入力フォーム -->
+  <div class="card">
+    <h2 class="section-title">ローン情報入力</h2>
+
+    <div class="form-grid">
+
+      <!-- ローン口座 -->
+      <div class="form-group">
+        <label>ローン口座 <span class="required">*</span></label>
+        <select x-model="form.loan_account_id" @change="clearSchedule()" class="input">
+          <option value="">-- 選択 --</option>
+          {% for acc in accounts %}
+          <option value="{{ acc.id }}">{{ acc.code }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- 返済口座 -->
+      <div class="form-group">
+        <label>返済口座 <span class="required">*</span></label>
+        <select x-model="form.repayment_account_id" @change="clearSchedule()" class="input">
+          <option value="">-- 選択 --</option>
+          {% for acc in accounts %}
+          <option value="{{ acc.id }}">{{ acc.code }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- 借入日 -->
+      <div class="form-group">
+        <label>借入日 <span class="required">*</span></label>
+        <input type="date" x-model="form.borrow_date" @change="clearSchedule()" class="input">
+      </div>
+
+      <!-- 借入金額 -->
+      <div class="form-group">
+        <label>借入金額（円）<span class="required">*</span></label>
+        <input type="number" x-model="form.borrow_amount" @input="clearSchedule()" min="1" step="1" class="input" placeholder="例: 3000000">
+      </div>
+
+      <!-- 年利 -->
+      <div class="form-group">
+        <label>年利（%）<span class="required">*</span></label>
+        <input type="number" x-model="form.annual_rate" @input="clearSchedule()" min="0" step="0.001" class="input" placeholder="例: 1.5">
+      </div>
+
+      <!-- 返済回数 -->
+      <div class="form-group">
+        <label>返済回数（回）<span class="required">*</span></label>
+        <input type="number" x-model="form.num_payments" @input="clearSchedule()" min="1" step="1" class="input" placeholder="例: 120">
+      </div>
+
+      <!-- 返済日（毎月何日） -->
+      <div class="form-group">
+        <label>毎月の返済日 <span class="required">*</span></label>
+        <input type="number" x-model="form.repayment_day" @input="clearSchedule()" min="1" max="31" step="1" class="input" placeholder="例: 25">
+        <p class="help-text">1〜31日。月末を超える場合は月末になります</p>
+      </div>
+
+      <!-- 初回返済日 -->
+      <div class="form-group">
+        <label>初回返済日 <span class="required">*</span></label>
+        <input type="date" x-model="form.first_payment_date" @change="clearSchedule()" class="input">
+      </div>
+
+      <!-- 返済方法 -->
+      <div class="form-group">
+        <label>返済方法 <span class="required">*</span></label>
+        <select x-model="form.repayment_method" @change="clearSchedule()" class="input">
+          <option value="equal_installment">元利均等（毎月の返済額が一定）</option>
+          <option value="equal_principal">元金均等（毎月の元金が一定）</option>
+          <option value="fixed_payment">固定額払い（2〜最終回-1は指定額、最終回は残高一括）</option>
+        </select>
+      </div>
+
+      <!-- 中間返済額（固定額払いのみ表示・必須） -->
+      <div class="form-group" x-show="form.repayment_method === 'fixed_payment'">
+        <label>中間返済額（円）<span class="required">*</span></label>
+        <input type="number" x-model="form.regular_payment_amount" @input="clearSchedule()" min="1" step="1" class="input" placeholder="例: 30000">
+        <p class="help-text">2回目〜最終回-1に適用される固定返済額。最終回は残高+利息を一括返済します</p>
+      </div>
+
+      <!-- 休日の扱い -->
+      <div class="form-group">
+        <label>休日の扱い <span class="required">*</span></label>
+        <select x-model="form.holiday_handling" @change="clearSchedule()" class="input">
+          <option value="next">翌営業日</option>
+          <option value="prev">前営業日</option>
+          <option value="none">調整なし</option>
+        </select>
+        <p class="help-text">土日のみ判定します（祝日は考慮しません）</p>
+      </div>
+
+      <!-- 初回返済額（任意） -->
+      <div class="form-group">
+        <label>初回返済額（円）</label>
+        <input type="number" x-model="form.first_payment_amount" @input="clearSchedule()" min="1" step="1" class="input" placeholder="空欄 = 自動計算">
+        <p class="help-text">日割り利息等で通常回と金額が異なる場合に指定</p>
+      </div>
+
+      <!-- 最終回返済額（任意） -->
+      <div class="form-group">
+        <label>最終回返済額（円）</label>
+        <input type="number" x-model="form.last_payment_amount" @input="clearSchedule()" min="1" step="1" class="input" placeholder="空欄 = 自動計算（残高調整）">
+        <p class="help-text">銀行の端数処理等で通常回と金額が異なる場合に指定</p>
+      </div>
+
+      <!-- メモプレフィックス -->
+      <div class="form-group">
+        <label>メモ（プレフィックス）</label>
+        <input type="text" x-model="form.memo_prefix" @input="clearSchedule()" class="input" placeholder="例: 住宅ローン返済">
+        <p class="help-text">各取引のメモに「第N回（元本）」等が付加されます</p>
+      </div>
+
+    </div><!-- /form-grid -->
+
+    <!-- 利息トランザクション作成オプション -->
+    <div class="form-group" style="margin-top: 12px;">
+      <label class="checkbox-label">
+        <input type="checkbox" x-model="form.create_interest_transactions" @change="clearSchedule()">
+        <span>利息のトランザクションも作成する</span>
+      </label>
+      <p class="help-text" style="margin-left: 20px;">
+        チェックを外すと元本の資金移動のみ作成されます（移行元データに利息が既にある場合はチェックを外してください）
+      </p>
+    </div>
+
+    <!-- 利息カテゴリ（利息作成時のみ表示・必須） -->
+    <div class="form-group" x-show="form.create_interest_transactions" style="margin-top: 8px;">
+      <label>利息カテゴリ <span class="required">*</span></label>
+      <select x-model="form.interest_category_id" @change="clearSchedule()" class="input">
+        <option value="">-- 選択 --</option>
+        {% for cat in interest_categories %}
+        <option value="{{ cat.id }}">{{ cat.full_path }}</option>
+        {% endfor %}
+      </select>
+      <p class="help-text">A10_ローン/ 配下のカテゴリが対象です</p>
+    </div>
+
+    <div class="form-actions">
+      <button type="button" class="btn-primary" @click="previewSchedule()" :disabled="previewing">
+        <span x-show="!previewing">プレビュー（スケジュール計算）</span>
+        <span x-show="previewing">計算中...</span>
+      </button>
+    </div>
+  </div><!-- /入力フォーム -->
+
+  <!-- 繰り上げ返済 -->
+  <div class="card">
+    <h2 class="section-title">繰り上げ返済（任意）</h2>
+
+    <!-- 繰り上げ種別 -->
+    <div style="display: flex; gap: 24px; margin-bottom: 12px;">
+      <label class="radio-label">
+        <input type="radio" x-model="form.early_repayment_type" value="shorten" @change="clearSchedule()">
+        <span class="radio-text">
+          <strong>期間短縮型</strong>
+          <small>返済月数を減らす</small>
+        </span>
+      </label>
+      <label class="radio-label">
+        <input type="radio" x-model="form.early_repayment_type" value="reduce" @change="clearSchedule()">
+        <span class="radio-text">
+          <strong>返済額軽減型</strong>
+          <small>毎月の返済額を減らす</small>
+        </span>
+      </label>
+    </div>
+
+    <!-- 繰り上げ返済リスト -->
+    <template x-for="(er, idx) in form.early_repayments" :key="idx">
+      <div class="early-repayment-entry">
+        <div class="form-group" style="margin: 0; flex: 1;">
+          <label style="font-size: 12px;">繰り上げ日</label>
+          <input type="date" x-model="er.date" @change="clearSchedule()" class="input">
+        </div>
+        <div class="form-group" style="margin: 0; flex: 1;">
+          <label style="font-size: 12px;">繰り上げ金額（円）</label>
+          <input type="number" x-model="er.amount" @input="clearSchedule()" min="1" step="1" class="input" placeholder="例: 500000">
+        </div>
+        <button type="button" class="btn-danger btn-sm" @click="removeEarlyRepayment(idx)" style="align-self: flex-end;">削除</button>
+      </div>
+    </template>
+
+    <div style="margin-top: 8px;">
+      <button type="button" class="btn-secondary" @click="addEarlyRepayment()">＋ 繰り上げ返済を追加</button>
+    </div>
+  </div><!-- /繰り上げ返済 -->
+
+  <!-- エラー表示 -->
+  <div x-show="errorMessage" class="flash error" x-text="errorMessage"></div>
+
+  <!-- プレビュー結果 -->
+  <div x-show="schedule.length > 0" class="card">
+    <h2 class="section-title">返済スケジュール（プレビュー）</h2>
+
+    <!-- サマリー -->
+    <div class="summary-cards" style="grid-template-columns: repeat(4, 1fr); margin-bottom: 16px;">
+      <div class="card" style="margin-bottom: 0;">
+        <div class="card-label">返済回数</div>
+        <div class="card-amount" style="font-size: 20px;" x-text="regularCount + ' 回'"></div>
+      </div>
+      <div class="card" style="margin-bottom: 0;">
+        <div class="card-label">借入元本</div>
+        <div class="card-amount" style="font-size: 20px;" x-text="'¥' + totalPrincipal.toLocaleString()"></div>
+      </div>
+      <div class="card" style="margin-bottom: 0;">
+        <div class="card-label">利息合計</div>
+        <div class="card-amount amount-expense" style="font-size: 20px;" x-text="'¥' + totalInterest.toLocaleString()"></div>
+      </div>
+      <div class="card" style="margin-bottom: 0;">
+        <div class="card-label">総返済額</div>
+        <div class="card-amount" style="font-size: 20px;" x-text="'¥' + totalPayment.toLocaleString()"></div>
+      </div>
+    </div>
+
+    <!-- スケジュール表 -->
+    <div class="table-scroll">
+      <table class="table table-sm table-striped">
+        <thead>
+          <tr>
+            <th>回</th>
+            <th>返済日</th>
+            <th class="text-right">返済額</th>
+            <th class="text-right">元本</th>
+            <th class="text-right">利息</th>
+            <th class="text-right">残高</th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="(row, idx) in schedule" :key="idx">
+            <tr :class="row.is_early_repayment ? 'early-repayment-row' : ''">
+              <td>
+                <span x-show="row.is_early_repayment" class="badge-early">繰上</span>
+                <span x-show="!row.is_early_repayment" x-text="row.payment_number"></span>
+              </td>
+              <td x-text="row.payment_date"></td>
+              <td class="text-right" x-text="'¥' + row.payment_amount.toLocaleString()"></td>
+              <td class="text-right amount-income" x-text="'¥' + row.principal_amount.toLocaleString()"></td>
+              <td class="text-right amount-expense" x-text="row.interest_amount > 0 ? '¥' + row.interest_amount.toLocaleString() : '-'"></td>
+              <td class="text-right" x-text="'¥' + row.remaining_balance.toLocaleString()"></td>
+            </tr>
+          </template>
+        </tbody>
+        <tfoot>
+          <tr style="font-weight: bold;">
+            <td colspan="2">合計</td>
+            <td class="text-right" x-text="'¥' + totalPayment.toLocaleString()"></td>
+            <td class="text-right" x-text="'¥' + totalPrincipal.toLocaleString()"></td>
+            <td class="text-right" x-text="'¥' + totalInterest.toLocaleString()"></td>
+            <td></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <!-- 登録ボタン -->
+    <div class="form-actions" style="margin-top: 16px;">
+      <div x-show="successMessage" class="flash success" x-text="successMessage" style="margin-bottom: 8px;"></div>
+      <button type="button" class="btn-primary btn-large" @click="createTransactions()" :disabled="creating || created">
+        <span x-show="!creating && !created" x-text="registerLabel()"></span>
+        <span x-show="creating">登録中...</span>
+        <span x-show="created">登録完了</span>
+      </button>
+      <a href="/transactions" class="btn-secondary">取引一覧へ</a>
+    </div>
+  </div><!-- /プレビュー結果 -->
+
+</div><!-- /x-data -->
+{% endblock %}
+
+{% block scripts %}
+<script>
+function loanForm() {
+  return {
+    form: {
+      loan_account_id: '',
+      repayment_account_id: '',
+      interest_category_id: '',
+      borrow_date: '',
+      borrow_amount: '',
+      annual_rate: '',
+      num_payments: '',
+      repayment_day: 25,
+      first_payment_date: '',
+      repayment_method: 'equal_installment',
+      holiday_handling: 'next',
+      create_interest_transactions: false,
+      memo_prefix: '',
+      early_repayments: [],
+      early_repayment_type: 'shorten',
+      first_payment_amount: '',
+      last_payment_amount: '',
+      regular_payment_amount: '',
+    },
+    schedule: [],
+    totalPayment: 0,
+    totalPrincipal: 0,
+    totalInterest: 0,
+    regularCount: 0,
+    previewing: false,
+    creating: false,
+    created: false,
+    errorMessage: '',
+    successMessage: '',
+
+    clearSchedule() {
+      this.schedule = [];
+      this.totalPayment = 0;
+      this.totalPrincipal = 0;
+      this.totalInterest = 0;
+      this.regularCount = 0;
+      this.created = false;
+      this.successMessage = '';
+      this.errorMessage = '';
+    },
+
+    addEarlyRepayment() {
+      this.form.early_repayments.push({ date: '', amount: '' });
+      this.clearSchedule();
+    },
+
+    removeEarlyRepayment(idx) {
+      this.form.early_repayments.splice(idx, 1);
+      this.clearSchedule();
+    },
+
+    registerLabel() {
+      const principal = `${this.regularCount} 件の元本`;
+      const interest = this.form.create_interest_transactions
+        ? ` + ${this.regularCount} 件の利息`
+        : '';
+      const early = this.form.early_repayments.filter(er => er.date && er.amount > 0).length;
+      const earlyMsg = early > 0 ? ` + 繰り上げ返済 ${early} 件` : '';
+      return `トランザクションを登録する（${principal}${interest}${earlyMsg}）`;
+    },
+
+    _buildPayload() {
+      return {
+        loan_account_id: parseInt(this.form.loan_account_id),
+        repayment_account_id: parseInt(this.form.repayment_account_id),
+        interest_category_id: this.form.create_interest_transactions && this.form.interest_category_id
+          ? parseInt(this.form.interest_category_id)
+          : null,
+        borrow_date: this.form.borrow_date,
+        borrow_amount: parseInt(this.form.borrow_amount),
+        annual_rate: parseFloat(this.form.annual_rate),
+        num_payments: parseInt(this.form.num_payments),
+        repayment_day: parseInt(this.form.repayment_day),
+        first_payment_date: this.form.first_payment_date,
+        repayment_method: this.form.repayment_method,
+        holiday_handling: this.form.holiday_handling,
+        create_interest_transactions: this.form.create_interest_transactions,
+        memo_prefix: this.form.memo_prefix || null,
+        group_id: null,
+        early_repayments: this.form.early_repayments
+          .filter(er => er.date && parseInt(er.amount) > 0)
+          .map(er => ({ date: er.date, amount: parseInt(er.amount) })),
+        early_repayment_type: this.form.early_repayment_type,
+        first_payment_amount: this.form.first_payment_amount
+          ? parseInt(this.form.first_payment_amount)
+          : null,
+        last_payment_amount: this.form.last_payment_amount
+          ? parseInt(this.form.last_payment_amount)
+          : null,
+        regular_payment_amount: this.form.regular_payment_amount
+          ? parseInt(this.form.regular_payment_amount)
+          : null,
+      };
+    },
+
+    _validate() {
+      const f = this.form;
+      if (!f.loan_account_id) return 'ローン口座を選択してください';
+      if (!f.repayment_account_id) return '返済口座を選択してください';
+      if (f.loan_account_id === f.repayment_account_id) return 'ローン口座と返済口座は異なるアカウントを選択してください';
+      if (!f.borrow_date) return '借入日を入力してください';
+      if (!f.borrow_amount || parseInt(f.borrow_amount) <= 0) return '借入金額を入力してください';
+      if (f.annual_rate === '' || isNaN(parseFloat(f.annual_rate))) return '年利を入力してください';
+      if (!f.num_payments || parseInt(f.num_payments) <= 0) return '返済回数を入力してください';
+      if (!f.repayment_day || parseInt(f.repayment_day) < 1 || parseInt(f.repayment_day) > 31) return '毎月の返済日を1〜31で入力してください';
+      if (!f.first_payment_date) return '初回返済日を入力してください';
+      if (f.create_interest_transactions && !f.interest_category_id) return '利息カテゴリを選択してください';
+      if (f.repayment_method === 'fixed_payment' && !f.regular_payment_amount) return '中間返済額を入力してください';
+      for (const er of f.early_repayments) {
+        if (er.date && !er.amount) return '繰り上げ返済の金額を入力してください';
+        if (!er.date && er.amount) return '繰り上げ返済の日付を入力してください';
+      }
+      return null;
+    },
+
+    async previewSchedule() {
+      this.errorMessage = '';
+      const err = this._validate();
+      if (err) { this.errorMessage = err; return; }
+
+      this.previewing = true;
+      this.schedule = [];
+      this.created = false;
+      this.successMessage = '';
+
+      try {
+        const res = await fetch('/api/v1/loans/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this._buildPayload()),
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          this.errorMessage = data.detail || 'プレビューに失敗しました';
+          return;
+        }
+        const data = await res.json();
+        this.schedule = data.schedule;
+        this.totalPayment = data.total_payment;
+        this.totalPrincipal = data.total_principal;
+        this.totalInterest = data.total_interest;
+        this.regularCount = data.schedule.filter(r => !r.is_early_repayment).length;
+      } catch (e) {
+        this.errorMessage = 'ネットワークエラーが発生しました';
+      } finally {
+        this.previewing = false;
+      }
+    },
+
+    async createTransactions() {
+      if (this.created) return;
+      if (!confirm('スケジュール通りにトランザクションを登録します。よろしいですか？')) return;
+
+      this.creating = true;
+      this.errorMessage = '';
+      try {
+        const res = await fetch('/api/v1/loans/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this._buildPayload()),
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          this.errorMessage = data.detail || '登録に失敗しました';
+          return;
+        }
+        const data = await res.json();
+        this.created = true;
+        const interestMsg = data.created_interest_count > 0
+          ? `、利息 ${data.created_interest_count} 件`
+          : '';
+        const earlyMsg = data.created_early_repayment_count > 0
+          ? `、繰り上げ返済 ${data.created_early_repayment_count} 件`
+          : '';
+        this.successMessage = `登録完了：元本 ${data.created_principal_count} 件${interestMsg}${earlyMsg} を作成しました（元本合計 ¥${data.total_principal.toLocaleString()}、利息合計 ¥${data.total_interest.toLocaleString()}）`;
+      } catch (e) {
+        this.errorMessage = 'ネットワークエラーが発生しました';
+      } finally {
+        this.creating = false;
+      }
+    },
+  };
+}
+</script>
+{% endblock %}

@@ -1,0 +1,105 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # 依存の脆弱性検査。テストとは別ジョブにして、新しい脆弱性が公表されても
+  # テスト結果（成功・失敗）が出るようにし、失敗の原因を切り分けやすくする。
+  audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Audit dependencies for known vulnerabilities
+        run: |
+          pip install pip-audit
+          pip-audit -r backend/requirements.txt
+
+  # 実名・実在の取引先名など、公開したくない語が追跡ファイルに混入していないか検査する。
+  # 語の一覧はリポジトリに置けないため、Secret FORBIDDEN_TERMS（改行区切り）から受け取る。
+  # Secret が無い実行（fork からの PR など）では検査をスキップする。
+  forbidden-terms:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check forbidden terms
+        env:
+          FORBIDDEN_TERMS: ${{ secrets.FORBIDDEN_TERMS }}
+        run: scripts/check_forbidden_terms.sh
+
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U test -d test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: sqlite://
+      SECRET_KEY: ci-secret-key
+      DEBUG: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        working-directory: backend
+        run: pip install -r requirements.txt
+
+      # 本番と同じ PostgreSQL 16 でテストを実行する（カバレッジはこの実行で計測）
+      - name: Run tests with coverage (PostgreSQL)
+        working-directory: backend
+        env:
+          TEST_DATABASE_URL: postgresql://test:test@localhost:5432/test
+        run: pytest --tb=short
+
+      # ローカル開発の既定構成（SQLite in-memory）でも通ることを確認する
+      - name: Run tests (SQLite)
+        working-directory: backend
+        run: pytest --tb=short --no-cov
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: backend/htmlcov/
+          retention-days: 7
+
+      - name: Coverage summary (PR comment)
+        if: github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: backend/coverage.xml
+          retention-days: 7

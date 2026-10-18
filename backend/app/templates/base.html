@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}家計簿{% endblock %} - 家計簿アプリ</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.x/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <nav class="navbar">
+    <div class="nav-brand">
+      <a href="/">家計簿</a>
+    </div>
+    <ul class="nav-links">
+      <li><a href="/">ダッシュボード</a></li>
+      <li><a href="/transactions">取引一覧</a></li>
+      <li><a href="/transactions/new" class="btn-primary-sm">＋ 新規入力</a></li>
+      <li class="dropdown">
+        <span>レポート ▾</span>
+        <ul class="dropdown-menu">
+          <li><a href="/reports/monthly">月次集計</a></li>
+          <li><a href="/reports/comparison">前年同月比</a></li>
+          <li><a href="/reports/matrix">カテゴリ×グループ</a></li>
+          <li><a href="/reports/yearly-trend">過去1年収支</a></li>
+          <li><a href="/reports/yearly-trend-chart">過去1年収支グラフ</a></li>
+          <li><a href="/reports/annual">年別収支</a></li>
+          <li><a href="/reports/annual-chart">年別収支グラフ</a></li>
+          <li><a href="/reports/account-annual">アカウント別年別</a></li>
+          <li><a href="/reports/account-classification-annual">分類別年別</a></li>
+          <li><a href="/reports/account-classification-annual-chart">分類別年別グラフ</a></li>
+          <li><a href="/reports/account-balance">アカウント別集計</a></li>
+          <li class="dropdown-divider"></li>
+          <li><a href="/reports/export-pdf" class="pdf-export-link">📄 前月レポートPDF出力</a></li>
+        </ul>
+      </li>
+      <li><a href="/loans/new">ローン登録</a></li>
+      <li><a href="/import">インポート</a></li>
+      <li><a href="/export">エクスポート</a></li>
+      <li><a href="/patterns">パターン管理</a></li>
+      <li><a href="/accounts">アカウント設定</a></li>
+      <li><a href="/backup">バックアップ</a></li>
+    </ul>
+  </nav>
+
+  {% if flash_message %}
+  <div class="flash {{ flash_type | default('info') }}">{{ flash_message }}</div>
+  {% endif %}
+
+  <main class="container">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="footer">
+    <p>家計簿アプリ</p>
+  </footer>
+
+  {% block scripts %}{% endblock %}
+
+  <!-- 明細ポップアップモーダル -->
+  <div x-data
+       x-show="$store.detailModal.open"
+       x-cloak
+       class="modal-overlay"
+       @click.self="$store.detailModal.close()"
+       @keydown.escape.window="$store.detailModal.close()">
+    <div class="modal-container" style="max-width:900px;">
+      <div class="modal-header">
+        <h3 x-text="$store.detailModal.title"></h3>
+        <button class="modal-close" @click="$store.detailModal.close()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div x-show="$store.detailModal.loading" class="modal-loading">読み込み中…</div>
+        <div x-show="!$store.detailModal.loading">
+          <p x-show="$store.detailModal.transactions.length === 0" class="modal-empty">データなし</p>
+          <table x-show="$store.detailModal.transactions.length > 0" class="modal-table">
+            <thead>
+              <tr>
+                <th style="width:32px;text-align:center;">
+                  <input type="checkbox"
+                         :checked="$store.detailModal.allSelected"
+                         @change="$store.detailModal.allSelected ? $store.detailModal.deselectAll() : $store.detailModal.selectAll()"
+                         title="全選択/解除">
+                </th>
+                <th>日付</th>
+                <th>カテゴリ</th>
+                <th>口座</th>
+                <th>グループ</th>
+                <th>メモ</th>
+                <th class="text-right">収入</th>
+                <th class="text-right">支出</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="tx in $store.detailModal.transactions" :key="tx.id">
+                <tr :class="$store.detailModal.selectedMap[tx.id] ? 'detail-row-selected' : ''"
+                    @click="$store.detailModal.toggleSelect(tx.id)" style="cursor:pointer;">
+                  <td style="text-align:center;" @click.stop>
+                    <input type="checkbox"
+                           :checked="!!$store.detailModal.selectedMap[tx.id]"
+                           @change="$store.detailModal.toggleSelect(tx.id)">
+                  </td>
+                  <td x-text="tx.date"></td>
+                  <td x-text="tx.category_full_path"></td>
+                  <td x-text="tx.account_code"></td>
+                  <td x-text="tx.group_code || ''"></td>
+                  <td x-text="tx.memo || ''"></td>
+                  <td class="text-right amount-income" x-text="tx.income_amount ? '¥' + tx.income_amount.toLocaleString() : ''"></td>
+                  <td class="text-right amount-expense" x-text="tx.expense_amount ? '¥' + tx.expense_amount.toLocaleString() : ''"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+          <p x-show="$store.detailModal.total > $store.detailModal.transactions.length"
+             class="modal-count"
+             x-text="'上位 ' + $store.detailModal.transactions.length + ' 件表示（全 ' + $store.detailModal.total + ' 件）'"></p>
+        </div>
+      </div>
+      <div x-show="!$store.detailModal.loading && $store.detailModal.transactions.length > 0"
+           class="modal-footer" style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem 1rem;border-top:1px solid #e5e7eb;flex-wrap:wrap;">
+        <span x-show="$store.detailModal.selectedCount > 0"
+              style="font-size:0.875rem;color:#6b7280;"
+              x-text="$store.detailModal.selectedCount + ' 件選択中'"></span>
+        <button x-show="$store.detailModal.selectedCount > 0"
+                class="btn-primary"
+                style="font-size:0.85rem;padding:5px 14px;"
+                @click="$store.detailModal.showSelectedInList()">
+          選択した明細を取引一覧で開く
+        </button>
+        <button class="btn-secondary"
+                style="font-size:0.85rem;padding:5px 14px;"
+                @click="$store.detailModal.showAllInList()">
+          絞り込み条件で取引一覧を開く
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    document.addEventListener('alpine:init', () => {
+      Alpine.store('detailModal', {
+        open: false,
+        loading: false,
+        title: '',
+        transactions: [],
+        total: 0,
+        selectedMap: {},
+        filterParams: {},
+
+        get selectedCount() {
+          return Object.values(this.selectedMap).filter(Boolean).length;
+        },
+
+        get allSelected() {
+          return this.transactions.length > 0 &&
+            this.transactions.every(tx => !!this.selectedMap[tx.id]);
+        },
+
+        toggleSelect(id) {
+          this.selectedMap = { ...this.selectedMap, [id]: !this.selectedMap[id] };
+        },
+
+        selectAll() {
+          const map = {};
+          this.transactions.forEach(tx => { map[tx.id] = true; });
+          this.selectedMap = map;
+        },
+
+        deselectAll() {
+          this.selectedMap = {};
+        },
+
+        showSelectedInList() {
+          const ids = Object.entries(this.selectedMap)
+            .filter(([, v]) => v).map(([k]) => k).join(',');
+          if (!ids) { alert('取引を選択してください'); return; }
+          window.location.href = `/transactions?ids=${ids}&f=1`;
+        },
+
+        showAllInList() {
+          const p = this.filterParams;
+          const params = new URLSearchParams({ f: '1' });
+          if (p.year != null) params.set('year', p.year);
+          if (p.month != null) params.set('month', p.month);
+          if (p.category_id != null) params.set('category_id', p.category_id);
+          if (p.group_id != null) params.set('group_id', p.group_id);
+          if (p.account_id != null) params.set('account_id', p.account_id);
+          window.location.href = `/transactions?${params.toString()}`;
+        },
+
+        async show(params) {
+          this.open = true;
+          this.loading = true;
+          this.transactions = [];
+          this.selectedMap = {};
+          this.title = params.title || '';
+          this.filterParams = params;
+          const url = new URL('/api/v1/transactions', location.origin);
+          if (params.year != null) url.searchParams.set('year', params.year);
+          if (params.month != null) url.searchParams.set('month', params.month);
+          if (params.category_id != null) url.searchParams.set('category_id', params.category_id);
+          if (params.group_id != null) url.searchParams.set('group_id', params.group_id);
+          if (params.account_id != null) url.searchParams.set('account_id', params.account_id);
+          url.searchParams.set('per_page', 200);
+          url.searchParams.set('page', 1);
+          try {
+            const res = await fetch(url);
+            const data = await res.json();
+            this.transactions = data.items;
+            this.total = data.total;
+          } catch(e) {
+            this.transactions = [];
+            this.total = 0;
+          } finally {
+            this.loading = false;
+          }
+        },
+        close() { this.open = false; }
+      });
+    });
+  </script>
+</body>
+</html>

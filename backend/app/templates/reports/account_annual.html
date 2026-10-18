@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}アカウント別年別レポート{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>アカウント別年別レポート</h1>
+  <form method="get" action="/reports/account-annual" class="inline-form">
+    <input type="number" name="start_year" value="{{ start_year }}" min="2000" max="2099" class="input-sm" style="width:80px"> 年〜
+    <input type="number" name="end_year"   value="{{ end_year }}"   min="2000" max="2099" class="input-sm" style="width:80px"> 年
+    <button type="submit" class="btn-secondary">表示</button>
+  </form>
+</div>
+
+<p class="subtitle" style="margin-bottom:12px;color:#64748b;font-size:13px;">
+  {{ start_year }}年 〜 {{ end_year }}年（{{ data.years | length }}年分）　集計値：累計残高（初回取引から各年末時点）　年をクリックすると月別表示
+</p>
+
+{% if not data.accounts %}
+<div class="card">
+  <p class="text-center">対象期間のデータがありません。</p>
+</div>
+{% else %}
+<div class="annual-wrap">
+  <table class="annual-table">
+    <thead>
+      <tr>
+        <th class="col-category" style="width:120px;">種別</th>
+        <th class="col-category">アカウント</th>
+        {% for y in data.years %}
+        <th class="col-year">
+          <a href="/reports/account-annual/monthly?year={{ y }}&start_year={{ start_year }}&end_year={{ end_year }}"
+             style="color:inherit;text-decoration:none;">
+            {{ y }}年
+          </a>
+        </th>
+        {% endfor %}
+        <th class="col-total">{{ end_year }}年末残高</th>
+      </tr>
+    </thead>
+    <tbody>
+
+      {% for group in data.grouped %}
+        {% for acc in group.accounts %}
+        <tr class="annual-parent-row">
+          {% if loop.first %}
+          <td rowspan="{{ group.accounts | length }}" style="vertical-align:middle; background:#f8f8f8; font-weight:bold; text-align:center;">
+            {{ group.type_label }}
+          </td>
+          {% endif %}
+          <td class="col-category">
+            <strong>{{ acc.name }}</strong>
+            {% if acc.start_date %}
+            <span style="font-size:11px;color:#94a3b8;margin-left:4px;">（{{ acc.start_date }} 以降）</span>
+            {% endif %}
+          </td>
+          {% for y in data.years %}
+          {% set bal = acc.cells.get(y | string, 0) %}
+          <td class="col-year {% if bal > 0 %}amount-income{% elif bal < 0 %}amount-expense{% endif %}">
+            {% if bal %}
+              {% if bal > 0 %}+{% endif %}¥{{ "{:,}".format(bal) }}
+            {% endif %}
+          </td>
+          {% endfor %}
+          <td class="col-total {% if acc.row_total > 0 %}amount-income{% elif acc.row_total < 0 %}amount-expense{% endif %}">
+            {% if acc.row_total %}
+              {% if acc.row_total > 0 %}+{% endif %}¥{{ "{:,}".format(acc.row_total) }}
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+
+        {# 種別小計行 #}
+        {% if data.grouped | length > 1 %}
+        <tr style="background:#f0f0f0; font-weight:bold;">
+          <td colspan="2" class="text-right" style="color:#555;">{{ group.type_label }} 小計</td>
+          {% for y in data.years %}
+          {% set sub = group.subtotal_cells.get(y | string, 0) %}
+          <td class="col-year {% if sub > 0 %}amount-income{% elif sub < 0 %}amount-expense{% endif %}">
+            {% if sub %}{% if sub > 0 %}+{% endif %}¥{{ "{:,}".format(sub) }}{% else %}—{% endif %}
+          </td>
+          {% endfor %}
+          {% set sub_total = group.subtotal_total %}
+          <td class="col-total {% if sub_total > 0 %}amount-income{% elif sub_total < 0 %}amount-expense{% endif %}">
+            {% if sub_total > 0 %}+{% endif %}¥{{ "{:,}".format(sub_total) }}
+          </td>
+        </tr>
+        {% endif %}
+      {% endfor %}
+
+      {# 合計行 #}
+      <tr class="annual-balance">
+        <td colspan="2" class="col-category">合計（累計）</td>
+        {% for y in data.years %}
+        {% set tot = data.year_totals.get(y | string, 0) %}
+        <td class="col-year {% if tot > 0 %}amount-income{% elif tot < 0 %}amount-expense{% endif %}">
+          {% if tot %}{% if tot > 0 %}+{% endif %}¥{{ "{:,}".format(tot) }}{% else %}—{% endif %}
+        </td>
+        {% endfor %}
+        <td class="col-total {% if data.grand_total > 0 %}amount-income{% elif data.grand_total < 0 %}amount-expense{% endif %}">
+          {% if data.grand_total > 0 %}+{% endif %}¥{{ "{:,}".format(data.grand_total) }}
+        </td>
+      </tr>
+
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

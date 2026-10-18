@@ -1,0 +1,480 @@
+{% extends "base.html" %}
+{% block title %}取引一覧{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>取引一覧</h1>
+  <a href="/transactions/new" class="btn-primary">＋ 新規入力</a>
+</div>
+
+<!-- IDフィルターバナー -->
+{% if ids_filter %}
+<div class="ids-filter-banner">
+  <span>レポートから選択した <strong>{{ total }} 件</strong> の明細を表示中</span>
+  <a href="/transactions" class="btn-link" style="margin-left:1rem;">フィルターを解除</a>
+</div>
+{% endif %}
+
+<!-- フィルターフォーム -->
+<form method="get" action="/transactions" class="filter-form" id="filterForm" {% if ids_filter %}style="display:none;"{% endif %}>
+  <input type="hidden" name="f" value="1">
+  <div class="filter-row">
+    <div class="filter-item">
+      <label>年</label>
+      <input type="number" name="year" value="{{ filter.year or '' }}" min="2000" max="2099" class="input-sm" placeholder="すべて">
+    </div>
+    <div class="filter-item">
+      <label>月</label>
+      <select name="month" class="input-sm">
+        <option value="" {% if not filter.month %}selected{% endif %}>すべて</option>
+        {% for m in range(1, 13) %}
+        <option value="{{ m }}" {% if m == filter.month %}selected{% endif %}>{{ m }}月</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="filter-item">
+      <label>カテゴリ</label>
+      <select name="category_id" class="input-sm">
+        <option value="">すべて</option>
+        {% for cat in categories %}
+        <option value="{{ cat.id }}" {% if filter.category_id == cat.id %}selected{% endif %}>{{ cat.full_path }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="filter-item">
+      <label>アカウント</label>
+      <select name="account_id" class="input-sm">
+        <option value="">すべて</option>
+        {% for acc in accounts %}
+        <option value="{{ acc.id }}" {% if filter.account_id == acc.id %}selected{% endif %}>{{ acc.code }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="filter-item">
+      <label>グループ</label>
+      <select name="group_id" class="input-sm">
+        <option value="">すべて</option>
+        {% for grp in groups %}
+        <option value="{{ grp.id }}" {% if filter.group_id == grp.id %}selected{% endif %}>{{ grp.code }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="filter-item">
+      <label>検索</label>
+      <input type="text" name="search" value="{{ filter.search }}" placeholder="メモ・カテゴリ" class="input-sm">
+    </div>
+    <div class="filter-item checkbox-item">
+      <label>
+        <input type="checkbox" name="is_transfer" value="true" {% if filter.is_transfer %}checked{% endif %}>
+        資金移動を含む
+      </label>
+    </div>
+    <button type="submit" class="btn-secondary" onclick="removeEmptyFields(this.form); return true;">絞り込む</button>
+    <a href="/transactions" class="btn-link">リセット</a>
+  </div>
+</form>
+
+<div class="table-meta" style="display:flex; align-items:center; gap:1rem;">
+  <span>{{ total }} 件 / {{ page }} ページ目</span>
+  <button class="btn-secondary" onclick="exportExcel()" style="font-size:0.85rem; padding:4px 12px;">Excel出力</button>
+</div>
+
+<!-- 取引テーブル -->
+<table class="table table-striped">
+  <thead>
+    <tr>
+      <th class="sortable-th" onclick="sortBy('date')">
+        日付<span class="sort-icon" data-col="date">{{ '▲' if filter.sort_by == 'date' and filter.sort_dir == 'asc' else '▼' if filter.sort_by == 'date' else '⇅' }}</span>
+      </th>
+      <th class="sortable-th" onclick="sortBy('category')">
+        カテゴリ<span class="sort-icon" data-col="category">{{ '▲' if filter.sort_by == 'category' and filter.sort_dir == 'asc' else '▼' if filter.sort_by == 'category' else '⇅' }}</span>
+      </th>
+      <th class="sortable-th" onclick="sortBy('account')">
+        アカウント<span class="sort-icon" data-col="account">{{ '▲' if filter.sort_by == 'account' and filter.sort_dir == 'asc' else '▼' if filter.sort_by == 'account' else '⇅' }}</span>
+      </th>
+      <th class="sortable-th" onclick="sortBy('group')">
+        グループ<span class="sort-icon" data-col="group">{{ '▲' if filter.sort_by == 'group' and filter.sort_dir == 'asc' else '▼' if filter.sort_by == 'group' else '⇅' }}</span>
+      </th>
+      <th>メモ</th>
+      <th class="text-right sortable-th" onclick="sortBy('income_amount')">
+        収入<span class="sort-icon" data-col="income_amount">{{ '▲' if filter.sort_by == 'income_amount' and filter.sort_dir == 'asc' else '▼' if filter.sort_by == 'income_amount' else '⇅' }}</span>
+      </th>
+      <th class="text-right sortable-th" onclick="sortBy('expense_amount')">
+        支出<span class="sort-icon" data-col="expense_amount">{{ '▲' if filter.sort_by == 'expense_amount' and filter.sort_dir == 'asc' else '▼' if filter.sort_by == 'expense_amount' else '⇅' }}</span>
+      </th>
+      <th class="sortable-th" onclick="sortBy('created_at')">
+        データ作成日<span class="sort-icon" data-col="created_at">{{ '▲' if filter.sort_by == 'created_at' and filter.sort_dir == 'asc' else '▼' if filter.sort_by == 'created_at' else '⇅' }}</span>
+      </th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for tx in items %}
+    <tr {% if tx.is_transfer %}class="transfer-row"{% endif %}>
+      <td>{{ tx.date }}</td>
+      <td>{{ tx.category_full_path }}</td>
+      <td>{{ tx.account_code }}</td>
+      <td>{{ tx.group_code or "" }}</td>
+      <td>{{ tx.memo or "" }}</td>
+      <td class="text-right amount-income">{% if tx.income_amount %}¥{{ "{:,}".format(tx.income_amount) }}{% endif %}</td>
+      <td class="text-right amount-expense">{% if tx.expense_amount %}¥{{ "{:,}".format(tx.expense_amount) }}{% endif %}</td>
+      <td class="text-nowrap">{{ tx.created_at | jst("%Y-%m-%d") if tx.created_at else "" }}</td>
+      <td>
+        <a href="/transactions/{{ tx.id }}/edit" class="btn-link-sm"
+           onclick="this.href='/transactions/{{ tx.id }}/edit?return_url='+encodeURIComponent(location.search)">編集</a>
+        <a href="/transactions/new" class="btn-link-sm"
+           onclick="this.href='/transactions/new?copy_from_id={{ tx.id }}&return_url='+encodeURIComponent(location.search)">コピー</a>
+        <button class="btn-danger-sm" onclick="deleteTransaction({{ tx.id }})">削除</button>
+        <button class="btn-sm" style="font-size:0.75rem;padding:2px 6px;"
+          data-tx="{{ {"category_id": tx.category_id, "parent_category_id": tx.parent_category_id, "account_id": tx.account_id, "group_id": tx.group_id, "income_amount": tx.income_amount, "expense_amount": tx.expense_amount, "memo": tx.memo, "category_full_path": tx.category_full_path, "is_transfer": tx.is_transfer} | tojson | forceescape }}"
+          onclick="openPatternRegFromTx(this)">パターン登録</button>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="9" class="text-center">データなし</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<!-- ページング -->
+{% if total_pages > 1 and not ids_filter %}
+{% set base_query = request.url.query | replace("&page=" ~ page, "") | replace("page=" ~ page ~ "&", "") | replace("page=" ~ page, "") %}
+<div class="pagination">
+  {% if page > 1 %}
+  <a href="?{{ base_query }}{% if base_query %}&{% endif %}page={{ page - 1 }}" class="btn-paging">← 前へ</a>
+  {% endif %}
+  <span>{{ page }} / {{ total_pages }}</span>
+  {% if page < total_pages %}
+  <a href="?{{ base_query }}{% if base_query %}&{% endif %}page={{ page + 1 }}" class="btn-paging">次へ →</a>
+  {% endif %}
+</div>
+{% endif %}
+
+<!-- パターン登録モーダル -->
+<div id="patternRegModal"
+  x-data='patternRegModal({{ parent_categories_json | tojson }}, {{ accounts_json | tojson }}, {{ groups_json | tojson }})'
+  @open-pattern-modal.window="openFromTx($event.detail)"
+  x-cloak>
+  <div x-show="showModal" class="modal-overlay" @click.self="showModal=false" @keydown.escape.window="showModal=false">
+    <div class="modal-container" style="max-width:600px;">
+      <div class="modal-header">
+        <h3>パターン登録</h3>
+        <button class="modal-close" @click="showModal=false">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-grid" style="gap:1rem;">
+
+          <div class="form-group form-group-wide">
+            <label>パターン名 <span class="required">*</span></label>
+            <input type="text" x-model="form.name" class="input" placeholder="例：月次_携帯代" maxlength="200">
+          </div>
+
+          <div class="form-group">
+            <label>頻度</label>
+            <select x-model="form.frequency" class="input">
+              <option value="monthly">月次</option>
+              <option value="annual">年次</option>
+              <option value="daily">日次</option>
+              <option value="other">その他</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>表示順</label>
+            <input type="number" x-model.number="form.sort_order" class="input" min="0" style="width:80px;">
+          </div>
+
+          <div class="form-group">
+            <label>親カテゴリ <span class="required">*</span></label>
+            <select x-model="parentCatId" @change="onParentChange()" class="input">
+              <option value="">— 選択 —</option>
+              <template x-for="c in parentCategories" :key="c.id">
+                <option :value="c.id" x-text="c.full_path"></option>
+              </template>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>子カテゴリ</label>
+            <select x-model="form.category_id" class="input" :disabled="!parentCatId">
+              <option value="">— 選択 —</option>
+              <template x-for="c in childCategories" :key="c.id">
+                <option :value="c.id" x-text="c.name"></option>
+              </template>
+            </select>
+            <p class="help-text" x-show="childCategories.length === 0 && parentCatId">（子カテゴリなし）</p>
+          </div>
+
+          <div class="form-group">
+            <label x-text="isTransferCategory ? '送金元口座' : 'アカウント'"></label><span class="required"> *</span>
+            <select x-model="form.account_id" class="input">
+              <option value="">— 選択 —</option>
+              <template x-for="a in accounts" :key="a.id">
+                <option :value="a.id" x-text="a.code"></option>
+              </template>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>グループ</label>
+            <select x-model="form.group_id" class="input">
+              <option value="">— なし —</option>
+              <template x-for="g in groups" :key="g.id">
+                <option :value="g.id" x-text="g.code"></option>
+              </template>
+            </select>
+          </div>
+
+          <div class="form-group" x-show="isTransferCategory">
+            <label>送金先口座 <span class="required">*</span></label>
+            <select x-model="form.to_account_id" class="input">
+              <option value="">— 選択 —</option>
+              <template x-for="a in accounts" :key="a.id">
+                <option :value="a.id" x-text="a.code"></option>
+              </template>
+            </select>
+          </div>
+
+          <div class="form-group" x-show="!isTransferCategory">
+            <label>収支区分</label>
+            <select x-model="form.is_income" class="input">
+              <option :value="false">支出</option>
+              <option :value="true">収入</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>典型的な金額（円）</label>
+            <input type="number" x-model.number="form.typical_amount" class="input" min="0" step="1">
+          </div>
+
+          <div class="form-group form-group-wide">
+            <label>メモテンプレート</label>
+            <input type="text" x-model="form.memo_template" class="input" placeholder="例：〇〇スーパー" maxlength="500">
+          </div>
+
+        </div>
+      </div>
+      <div class="modal-footer" style="display:flex;gap:0.5rem;justify-content:flex-end;padding:1rem;">
+        <button class="btn-secondary" @click="showModal=false">キャンセル</button>
+        <button class="btn-primary" @click="save()" :disabled="saving">
+          <span x-text="saving ? '保存中…' : '登録'"></span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<style>
+.sortable-th {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+.sortable-th:hover { background: rgba(0,0,0,0.05); }
+.sort-icon { margin-left: 4px; font-size: 0.75em; opacity: 0.5; }
+.sort-icon[data-col="{{ filter.sort_by }}"] { opacity: 1; color: #3b82f6; }
+</style>
+<script>
+function sortBy(col) {
+  const url = new URL(window.location.href);
+  const current = url.searchParams.get('sort_by') || 'created_at';
+  const currentDir = url.searchParams.get('sort_dir') || 'desc';
+  if (current === col) {
+    url.searchParams.set('sort_dir', currentDir === 'desc' ? 'asc' : 'desc');
+  } else {
+    url.searchParams.set('sort_by', col);
+    url.searchParams.set('sort_dir', 'desc');
+  }
+  url.searchParams.set('page', '1');
+  window.location.href = url.toString();
+}
+
+function removeEmptyFields(form) {
+  Array.from(form.elements).forEach(el => {
+    if ((el.tagName === 'INPUT' || el.tagName === 'SELECT') && el.value === '') {
+      el.disabled = true;
+    }
+  });
+}
+
+async function deleteTransaction(id) {
+  if (!confirm('この取引を削除しますか？')) return;
+  const res = await fetch(`/api/v1/transactions/${id}`, { method: 'DELETE' });
+  if (res.ok) location.reload();
+  else alert('削除に失敗しました');
+}
+
+function exportExcel() {
+  // 現在のフィルター条件をそのままExcelエンドポイントに渡す
+  const form = document.getElementById('filterForm');
+  const params = new URLSearchParams();
+  for (const el of form.elements) {
+    if (el.disabled || !el.name || el.value === '') continue;
+    if (el.type === 'checkbox' && !el.checked) continue;
+    params.append(el.name, el.value);
+  }
+  window.location.href = '/transactions/export/excel?' + params.toString();
+}
+
+function openPatternRegFromTx(btn) {
+  const tx = JSON.parse(btn.dataset.tx);
+  window.dispatchEvent(new CustomEvent('open-pattern-modal', { detail: tx }));
+}
+
+function patternRegModal(parentCategoriesData, accountsData, groupsData) {
+  return {
+    showModal: false,
+    parentCategories: parentCategoriesData,
+    accounts: accountsData,
+    groups: groupsData,
+    childCategories: [],
+    parentCatId: '',
+    saving: false,
+    isTransferCategory: false,
+    form: {
+      name: '',
+      frequency: 'monthly',
+      category_id: '',
+      account_id: '',
+      to_account_id: '',
+      group_id: '',
+      typical_amount: 0,
+      is_income: false,
+      memo_template: '',
+      sort_order: 0,
+    },
+
+    _parseTransferCounterpartId(categoryFullPath) {
+      // "【資金移動】- {code}へ -" or "【資金移動】- {code}から -"
+      const m = categoryFullPath.match(/【資金移動】-\s*(.+?)(?:へ|から)\s*-/);
+      if (!m) return '';
+      const code = m[1].trim();
+      const account = this.accounts.find(a => a.code === code);
+      return account ? account.id : '';
+    },
+
+    async openFromTx(tx) {
+      const isTransfer = !!tx.is_transfer;
+      this.isTransferCategory = isTransfer;
+
+      const isIncome = (tx.income_amount || 0) > 0;
+      const amount = isTransfer
+        ? (tx.expense_amount || tx.income_amount || 0)
+        : (isIncome ? (tx.income_amount || 0) : (tx.expense_amount || 0));
+
+      const catFullPath = tx.category_full_path || '';
+      let defaultName;
+      if (isTransfer) {
+        const accountCode = this.accounts.find(a => a.id === tx.account_id);
+        defaultName = `月次_資金移動_${accountCode ? accountCode.code : catFullPath}`;
+      } else {
+        const catName = catFullPath.split('/').pop();
+        defaultName = `月次_${catName}`;
+      }
+
+      // 資金移動の場合: account_id=送金元, to_account_id=送金先
+      // 出金取引 → tx.account_id が送金元、カテゴリ名から送金先を解析
+      // 入金取引 → tx.account_id が受取(送金先)、カテゴリ名から送金元を解析 → 逆転
+      let fromAccountId = tx.account_id;
+      let toAccountId = '';
+      if (isTransfer) {
+        const counterpartId = this._parseTransferCounterpartId(catFullPath);
+        if (isIncome) {
+          // 入金側: tx.account_id = 送金先、パース結果 = 送金元
+          fromAccountId = counterpartId;
+          toAccountId = tx.account_id;
+        } else {
+          // 出金側: tx.account_id = 送金元、パース結果 = 送金先
+          fromAccountId = tx.account_id;
+          toAccountId = counterpartId;
+        }
+      }
+
+      this.form = {
+        name: defaultName,
+        frequency: 'monthly',
+        category_id: '',
+        account_id: fromAccountId,
+        to_account_id: toAccountId,
+        group_id: tx.group_id || '',
+        typical_amount: amount,
+        is_income: isIncome,
+        memo_template: tx.memo || '',
+        sort_order: 0,
+      };
+
+      const parentId = tx.parent_category_id || tx.category_id;
+      this.parentCatId = parentId;
+      await this.loadChildren(parentId);
+      this.form.category_id = tx.category_id;
+
+      this.showModal = true;
+    },
+
+    async onParentChange() {
+      this.form.category_id = '';
+      this.childCategories = [];
+      if (this.parentCatId) {
+        await this.loadChildren(parseInt(this.parentCatId));
+        if (this.childCategories.length === 0) {
+          this.form.category_id = parseInt(this.parentCatId);
+        }
+      }
+    },
+
+    async loadChildren(parentId) {
+      const res = await fetch(`/api/v1/categories/${parentId}/children`);
+      this.childCategories = await res.json();
+    },
+
+    async save() {
+      if (!this.form.name) { alert('パターン名を入力してください'); return; }
+      if (!this.form.category_id) { alert('カテゴリを選択してください'); return; }
+      if (!this.form.account_id) { alert('アカウントを選択してください'); return; }
+      if (this.isTransferCategory && !this.form.to_account_id) { alert('送金先口座を選択してください'); return; }
+
+      const payload = {
+        name: this.form.name,
+        frequency: this.form.frequency,
+        category_id: parseInt(this.form.category_id),
+        account_id: parseInt(this.form.account_id),
+        to_account_id: this.form.to_account_id ? parseInt(this.form.to_account_id) : null,
+        group_id: this.form.group_id ? parseInt(this.form.group_id) : null,
+        typical_amount: parseInt(this.form.typical_amount) || 0,
+        is_income: this.form.is_income,
+        memo_template: this.form.memo_template || null,
+        sort_order: parseInt(this.form.sort_order) || 0,
+        is_active: true,
+      };
+
+      this.saving = true;
+      try {
+        const res = await fetch('/api/v1/patterns', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          let detail = `サーバーエラー (${res.status})`;
+          try {
+            const err = await res.json();
+            detail = JSON.stringify(err.detail || err);
+          } catch {}
+          alert('エラー: ' + detail);
+          return;
+        }
+        this.showModal = false;
+        alert('パターンを登録しました');
+      } catch (e) {
+        alert('通信エラーが発生しました: ' + e.message);
+      } finally {
+        this.saving = false;
+      }
+    },
+  };
+}
+</script>
+{% endblock %}

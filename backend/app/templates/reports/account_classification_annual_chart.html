@@ -1,0 +1,204 @@
+{% extends "base.html" %}
+{% block title %}分類別年別残高グラフ{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>アカウント分類別年別残高グラフ</h1>
+  <form method="get" action="/reports/account-classification-annual-chart" class="inline-form">
+    <input type="number" name="start_year" value="{{ start_year }}" min="{{ db_min_year }}" max="2099" class="input-sm" style="width:80px"> 年〜
+    <input type="number" name="end_year"   value="{{ end_year }}"   min="{{ db_min_year }}" max="2099" class="input-sm" style="width:80px"> 年
+    <button type="submit" class="btn-secondary">表示</button>
+  </form>
+  <a href="/reports/account-classification-annual?start_year={{ start_year }}&end_year={{ end_year }}" class="btn-secondary" style="margin-left:8px;">テーブル表示</a>
+</div>
+
+<p class="subtitle" style="margin-bottom:12px;color:#64748b;font-size:13px;">
+  {{ start_year }}年 〜 {{ end_year }}年（{{ data.years | length }}年分）　集計値：累計残高（各年末時点）
+</p>
+
+{% if not data.has_data %}
+<div class="card">
+  <p class="text-center">対象期間のデータがありません。</p>
+</div>
+{% else %}
+
+{# ── 積み上げ棒グラフ（プラス残高） ── #}
+<div class="card" style="margin-bottom:24px;">
+  <h2 style="margin-bottom:4px;font-size:16px;font-weight:600;color:#1e40af;">
+    分類別累計残高（積み上げ）
+  </h2>
+  <p style="margin-bottom:12px;font-size:12px;color:#94a3b8;">※ローン等の負残高がある分類は下方向にスタックされます</p>
+  <div style="position:relative;height:380px;">
+    <canvas id="stackedChart"></canvas>
+  </div>
+</div>
+
+{# ── 折れ線グラフ（分類別推移） ── #}
+<div class="card" style="margin-bottom:24px;">
+  <h2 style="margin-bottom:16px;font-size:16px;font-weight:600;color:#0f766e;">
+    分類別残高推移
+  </h2>
+  <div style="position:relative;height:380px;">
+    <canvas id="lineChart"></canvas>
+  </div>
+</div>
+
+{# ── 集計テーブル ── #}
+<div class="card">
+  <h2 style="margin-bottom:12px;font-size:15px;font-weight:600;color:#334155;">集計表</h2>
+  <div style="overflow-x:auto;">
+    <table class="annual-table" style="font-size:12px;">
+      <thead>
+        <tr>
+          <th class="col-category">分類</th>
+          {% for y in data.years %}<th class="col-year">{{ y }}年</th>{% endfor %}
+          <th class="col-total">{{ end_year }}年末残高</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in data.rows %}
+        <tr>
+          <td class="col-category">
+            {% if row.classification %}<strong>{{ row.classification }}</strong>{% else %}<span style="color:#94a3b8;">（分類なし）</span>{% endif %}
+          </td>
+          {% for y in data.years %}
+          {% set bal = row.cells.get(y | string, 0) %}
+          <td class="col-year {% if bal > 0 %}amount-income{% elif bal < 0 %}amount-expense{% endif %}">
+            {% if bal %}{% if bal > 0 %}+{% endif %}¥{{ "{:,}".format(bal) }}{% else %}—{% endif %}
+          </td>
+          {% endfor %}
+          <td class="col-total {% if row.row_total > 0 %}amount-income{% elif row.row_total < 0 %}amount-expense{% endif %}">
+            {% if row.row_total %}{% if row.row_total > 0 %}+{% endif %}¥{{ "{:,}".format(row.row_total) }}{% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+        <tr class="annual-balance">
+          <td class="col-category">合計</td>
+          {% for y in data.years %}
+          {% set tot = data.year_totals.get(y | string, 0) %}
+          <td class="col-year {% if tot > 0 %}amount-income{% elif tot < 0 %}amount-expense{% endif %}">
+            {% if tot %}{% if tot > 0 %}+{% endif %}¥{{ "{:,}".format(tot) }}{% else %}—{% endif %}
+          </td>
+          {% endfor %}
+          <td class="col-total {% if data.grand_total > 0 %}amount-income{% elif data.grand_total < 0 %}amount-expense{% endif %}">
+            {% if data.grand_total > 0 %}+{% endif %}¥{{ "{:,}".format(data.grand_total) }}
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const rows = {{ data.rows | tojson }};
+  const years = {{ data.years | tojson }};
+  const yearTotals = {{ data.year_totals | tojson }};
+  const labels = years.map(y => y + '年');
+
+  const palette = [
+    '#3b82f6', '#22c55e', '#f59e0b', '#8b5cf6', '#06b6d4',
+    '#ef4444', '#f97316', '#84cc16', '#ec4899', '#14b8a6',
+    '#a78bfa', '#fb7185', '#34d399', '#fbbf24', '#60a5fa',
+  ];
+
+  const datasets = rows.map((row, i) => {
+    const color = palette[i % palette.length];
+    return {
+      label: row.classification || '（分類なし）',
+      data: years.map(y => row.cells[String(y)] || 0),
+      backgroundColor: color + 'cc',
+      borderColor: color,
+      borderWidth: 1,
+      borderRadius: 3,
+    };
+  });
+
+  const lineDatasets = rows.map((row, i) => {
+    const color = palette[i % palette.length];
+    return {
+      label: row.classification || '（分類なし）',
+      data: years.map(y => row.cells[String(y)] || 0),
+      borderColor: color,
+      backgroundColor: color + '33',
+      borderWidth: 2,
+      pointRadius: 4,
+      pointHoverRadius: 6,
+      fill: false,
+      tension: 0.2,
+    };
+  });
+
+  const totalDataset = {
+    label: '合計',
+    data: years.map(y => yearTotals[String(y)] || 0),
+    borderColor: '#1e293b',
+    backgroundColor: '#1e293b33',
+    borderWidth: 2,
+    borderDash: [5, 3],
+    pointRadius: 4,
+    fill: false,
+    tension: 0.2,
+  };
+
+  const yTickFormatter = v => {
+    const sign = v < 0 ? '-' : '';
+    const abs = Math.abs(v);
+    if (abs >= 1e8) return sign + '¥' + (abs / 1e8).toFixed(1) + '億';
+    if (abs >= 1e4) return sign + '¥' + (abs / 1e4).toFixed(0) + '万';
+    return sign + '¥' + abs.toLocaleString();
+  };
+
+  const tooltipLabel = ctx => ' ' + ctx.dataset.label + ': ¥' + ctx.raw.toLocaleString();
+
+  // 積み上げ棒グラフ
+  new Chart(document.getElementById('stackedChart'), {
+    type: 'bar',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'top' },
+        tooltip: {
+          callbacks: { label: tooltipLabel },
+        },
+      },
+      scales: {
+        x: { stacked: true, grid: { display: false } },
+        y: {
+          stacked: true,
+          ticks: { callback: yTickFormatter },
+        },
+      },
+    },
+  });
+
+  // 折れ線グラフ（分類別 + 合計）
+  new Chart(document.getElementById('lineChart'), {
+    type: 'line',
+    data: { labels, datasets: [...lineDatasets, totalDataset] },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'top' },
+        tooltip: {
+          callbacks: { label: tooltipLabel },
+        },
+      },
+      scales: {
+        x: { grid: { display: false } },
+        y: {
+          ticks: { callback: yTickFormatter },
+        },
+      },
+    },
+  });
+})();
+</script>
+{% endblock %}

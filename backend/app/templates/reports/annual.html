@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+{% block title %}年別収支{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>年別収支</h1>
+  <form method="get" action="/reports/annual" class="inline-form">
+    <input type="number" name="start_year" value="{{ start_year }}" min="2000" max="2099" class="input-sm" style="width:80px"> 年〜
+    <input type="number" name="end_year"   value="{{ end_year }}"   min="2000" max="2099" class="input-sm" style="width:80px"> 年
+    <button type="submit" class="btn-secondary">表示</button>
+  </form>
+</div>
+
+<p class="subtitle" style="margin-bottom:12px;color:#64748b;font-size:13px;">
+  {{ start_year }}年 〜 {{ end_year }}年（{{ data.years | length }}年分）
+</p>
+
+{% if not data.income_categories and not data.expense_categories %}
+<div class="card">
+  <p class="text-center">対象期間のデータがありません。</p>
+</div>
+{% else %}
+<div class="annual-wrap" x-data="{ open: {} }">
+  <table class="annual-table">
+    <thead>
+      <tr>
+        <th class="col-category">カテゴリ</th>
+        {% for y in data.years %}
+        <th class="col-year">{{ y }}年</th>
+        {% endfor %}
+        <th class="col-total">合計</th>
+      </tr>
+    </thead>
+    <tbody>
+
+      {# ══ 収入セクション ══ #}
+      {% if data.income_categories %}
+      <tr class="annual-section-header annual-income-header">
+        <td colspan="{{ data.years | length + 2 }}">収入</td>
+      </tr>
+      {% for cat in data.income_categories %}
+      {# 親行 #}
+      <tr class="annual-parent-row annual-income-parent"
+          @click="open[{{ cat.cat_id }}] = !open[{{ cat.cat_id }}]">
+        <td class="col-category">
+          {% if cat.children %}
+          <span x-text="open[{{ cat.cat_id }}] ? '▼' : '▶'" style="margin-right:4px;font-size:11px;"></span>
+          {% else %}
+          <span style="margin-right:16px;"></span>
+          {% endif %}
+          <strong>{{ cat.name }}</strong>
+        </td>
+        {% for y in data.years %}
+        {% set amt = cat.cells.get(y | string, 0) %}
+        <td class="col-year amount-income{% if amt %} amt-clickable{% endif %}"
+            @click.stop="{% if amt %}$store.detailModal.show({year:{{ y }},category_id:{{ cat.cat_id }},title:'{{ cat.name }} {{ y }}年'}){% endif %}">
+          {% if amt %}¥{{ "{:,}".format(amt) }}{% endif %}
+        </td>
+        {% endfor %}
+        <td class="col-total amount-income{% if cat.row_total %} amt-clickable{% endif %}"
+            @click.stop="{% if cat.row_total %}$store.detailModal.show({category_id:{{ cat.cat_id }},title:'{{ cat.name }} {{ start_year }}〜{{ end_year }}年'}){% endif %}">
+          {% if cat.row_total %}¥{{ "{:,}".format(cat.row_total) }}{% endif %}
+        </td>
+      </tr>
+      {# 子行 #}
+      {% for child in cat.children %}
+      <tr class="annual-child-row" x-show="open[{{ cat.cat_id }}]" x-cloak>
+        <td class="col-category">{{ child.name }}</td>
+        {% for y in data.years %}
+        {% set amt = child.cells.get(y | string, 0) %}
+        <td class="col-year amount-income{% if amt %} amt-clickable{% endif %}"
+            @click.stop="{% if amt %}$store.detailModal.show({year:{{ y }},category_id:{{ child.cat_id }},title:'{{ child.name }} {{ y }}年'}){% endif %}">
+          {% if amt %}¥{{ "{:,}".format(amt) }}{% endif %}
+        </td>
+        {% endfor %}
+        <td class="col-total amount-income{% if child.row_total %} amt-clickable{% endif %}"
+            @click.stop="{% if child.row_total %}$store.detailModal.show({category_id:{{ child.cat_id }},title:'{{ child.name }} {{ start_year }}〜{{ end_year }}年'}){% endif %}">
+          {% if child.row_total %}¥{{ "{:,}".format(child.row_total) }}{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      {% endfor %}
+      {# 収入計 #}
+      <tr class="annual-subtotal annual-income-subtotal">
+        <td class="col-category">収入計</td>
+        {% for y in data.years %}
+        {% set amt = data.income_year_totals.get(y | string, 0) %}
+        <td class="col-year amount-income{% if amt %} amt-clickable{% endif %}"
+            @click.stop="{% if amt %}$store.detailModal.show({year:{{ y }},title:'収入計 {{ y }}年'}){% endif %}">
+          {% if amt %}¥{{ "{:,}".format(amt) }}{% endif %}
+        </td>
+        {% endfor %}
+        <td class="col-total amount-income">{% if data.income_grand_total %}¥{{ "{:,}".format(data.income_grand_total) }}{% endif %}</td>
+      </tr>
+      {% endif %}
+
+      {# ══ 支出セクション ══ #}
+      {% if data.expense_categories %}
+      <tr class="annual-section-header annual-expense-header">
+        <td colspan="{{ data.years | length + 2 }}">支出</td>
+      </tr>
+      {% for cat in data.expense_categories %}
+      {# 親行 #}
+      <tr class="annual-parent-row"
+          @click="open[{{ cat.cat_id }}] = !open[{{ cat.cat_id }}]">
+        <td class="col-category">
+          {% if cat.children %}
+          <span x-text="open[{{ cat.cat_id }}] ? '▼' : '▶'" style="margin-right:4px;font-size:11px;"></span>
+          {% else %}
+          <span style="margin-right:16px;"></span>
+          {% endif %}
+          <strong>{{ cat.name }}</strong>
+        </td>
+        {% for y in data.years %}
+        {% set amt = cat.cells.get(y | string, 0) %}
+        <td class="col-year amount-expense{% if amt %} amt-clickable{% endif %}"
+            @click.stop="{% if amt %}$store.detailModal.show({year:{{ y }},category_id:{{ cat.cat_id }},title:'{{ cat.name }} {{ y }}年'}){% endif %}">
+          {% if amt %}¥{{ "{:,}".format(amt) }}{% endif %}
+        </td>
+        {% endfor %}
+        <td class="col-total amount-expense{% if cat.row_total %} amt-clickable{% endif %}"
+            @click.stop="{% if cat.row_total %}$store.detailModal.show({category_id:{{ cat.cat_id }},title:'{{ cat.name }} {{ start_year }}〜{{ end_year }}年'}){% endif %}">
+          {% if cat.row_total %}¥{{ "{:,}".format(cat.row_total) }}{% endif %}
+        </td>
+      </tr>
+      {# 子行 #}
+      {% for child in cat.children %}
+      <tr class="annual-child-row" x-show="open[{{ cat.cat_id }}]" x-cloak>
+        <td class="col-category">{{ child.name }}</td>
+        {% for y in data.years %}
+        {% set amt = child.cells.get(y | string, 0) %}
+        <td class="col-year amount-expense{% if amt %} amt-clickable{% endif %}"
+            @click.stop="{% if amt %}$store.detailModal.show({year:{{ y }},category_id:{{ child.cat_id }},title:'{{ child.name }} {{ y }}年'}){% endif %}">
+          {% if amt %}¥{{ "{:,}".format(amt) }}{% endif %}
+        </td>
+        {% endfor %}
+        <td class="col-total amount-expense{% if child.row_total %} amt-clickable{% endif %}"
+            @click.stop="{% if child.row_total %}$store.detailModal.show({category_id:{{ child.cat_id }},title:'{{ child.name }} {{ start_year }}〜{{ end_year }}年'}){% endif %}">
+          {% if child.row_total %}¥{{ "{:,}".format(child.row_total) }}{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      {% endfor %}
+      {# 支出計 #}
+      <tr class="annual-subtotal annual-expense-subtotal">
+        <td class="col-category">支出計</td>
+        {% for y in data.years %}
+        {% set amt = data.expense_year_totals.get(y | string, 0) %}
+        <td class="col-year amount-expense{% if amt %} amt-clickable{% endif %}"
+            @click.stop="{% if amt %}$store.detailModal.show({year:{{ y }},title:'支出計 {{ y }}年'}){% endif %}">
+          {% if amt %}¥{{ "{:,}".format(amt) }}{% endif %}
+        </td>
+        {% endfor %}
+        <td class="col-total amount-expense">{% if data.expense_grand_total %}¥{{ "{:,}".format(data.expense_grand_total) }}{% endif %}</td>
+      </tr>
+      {% endif %}
+
+      {# ══ 収支行 ══ #}
+      {% if data.income_categories or data.expense_categories %}
+      <tr class="annual-balance">
+        <td class="col-category">収支（収入 − 支出）</td>
+        {% for y in data.years %}
+        {% set bal = data.balance_year_totals.get(y | string, 0) %}
+        <td class="col-year {% if bal > 0 %}amount-income{% elif bal < 0 %}amount-expense{% endif %}">
+          {% if bal %}{% if bal > 0 %}+{% endif %}¥{{ "{:,}".format(bal) }}{% else %}—{% endif %}
+        </td>
+        {% endfor %}
+        <td class="col-total {% if data.balance_grand_total > 0 %}amount-income{% elif data.balance_grand_total < 0 %}amount-expense{% endif %}">
+          {% if data.balance_grand_total > 0 %}+{% endif %}¥{{ "{:,}".format(data.balance_grand_total) }}
+        </td>
+      </tr>
+      {% endif %}
+
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

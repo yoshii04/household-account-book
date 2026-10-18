@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}バックアップ・復元{% endblock %}
+
+{% block content %}
+<h1>DB バックアップ・復元</h1>
+
+<div x-data="backupManager()">
+
+  <!-- メッセージ -->
+  <div x-show="message"
+       x-cloak
+       :class="messageType === 'success' ? 'alert alert-success' : 'alert alert-danger'"
+       x-text="message"></div>
+
+  <!-- バックアップ作成 -->
+  <div class="card">
+    <h2>バックアップ作成</h2>
+    <p class="help-text">現在の DB 全体を SQL ダンプファイルとしてダウンロードします。任意の場所に保存してください。</p>
+    <button class="btn-primary" @click="createBackup()" :disabled="dumping">
+      <span x-show="!dumping">ダウンロード</span>
+      <span x-show="dumping">作成中...</span>
+    </button>
+  </div>
+
+  <!-- 復元 -->
+  <div class="card" style="margin-top: 1.5rem;">
+    <h2>復元</h2>
+    <div class="alert alert-warning">
+      ⚠ 復元を実行すると、<strong>現在の DB データはすべて上書き</strong>されます。この操作は取り消せません。
+    </div>
+    <p class="help-text" style="margin-top: 0.75rem;">バックアップ済みの .sql ファイルを選択してアップロードしてください。</p>
+
+    <div class="upload-area"
+         @dragover.prevent
+         @drop.prevent="onDrop($event)"
+         :class="{ 'dragging': isDragging }"
+         @dragenter="isDragging = true"
+         @dragleave="isDragging = false">
+      <p>ファイルをここにドラッグ＆ドロップ</p>
+      <p>または</p>
+      <label class="btn-secondary">
+        ファイルを選択 (.sql)
+        <input type="file" accept=".sql" @change="onFileSelect($event)" style="display:none">
+      </label>
+      <p x-show="selectedFile" class="file-name" x-text="selectedFile?.name"></p>
+    </div>
+
+    <div x-show="selectedFile" class="upload-actions" style="margin-top: 1rem;">
+      <button class="btn-danger" @click="doRestore()" :disabled="restoring">
+        <span x-show="!restoring">復元を実行する</span>
+        <span x-show="restoring">復元中...</span>
+      </button>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function backupManager() {
+  return {
+    dumping: false,
+    restoring: false,
+    isDragging: false,
+    selectedFile: null,
+    message: '',
+    messageType: '',
+
+    async createBackup() {
+      this.dumping = true;
+      this.clearMessage();
+      try {
+        const res = await fetch('/api/v1/backup/dump', { method: 'POST' });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.detail || 'バックアップ作成に失敗しました');
+        }
+        const cd = res.headers.get('Content-Disposition') || '';
+        const match = cd.match(/filename[^;=\n]*=["']?([^"';\n]+)/);
+        const filename = match ? match[1] : 'backup.sql';
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+        this.showMessage('バックアップファイルのダウンロードを開始しました', 'success');
+      } catch (e) {
+        this.showMessage(e.message, 'error');
+      } finally {
+        this.dumping = false;
+      }
+    },
+
+    onFileSelect(e) {
+      this.selectedFile = e.target.files[0] || null;
+      this.clearMessage();
+    },
+
+    onDrop(e) {
+      this.isDragging = false;
+      const file = e.dataTransfer.files[0];
+      if (file && file.name.endsWith('.sql')) {
+        this.selectedFile = file;
+        this.clearMessage();
+      } else {
+        this.showMessage('.sql ファイルのみ対応しています', 'error');
+      }
+    },
+
+    async doRestore() {
+      if (!this.selectedFile) return;
+      const confirmed = confirm(
+        `"${this.selectedFile.name}" で復元しますか？\n⚠ 現在の DB データはすべて上書きされます。`
+      );
+      if (!confirmed) return;
+
+      this.restoring = true;
+      this.clearMessage();
+      try {
+        const form = new FormData();
+        form.append('file', this.selectedFile);
+        const res = await fetch('/api/v1/backup/restore', { method: 'POST', body: form });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || '復元に失敗しました');
+        this.showMessage(data.message, 'success');
+        this.selectedFile = null;
+      } catch (e) {
+        this.showMessage(e.message, 'error');
+      } finally {
+        this.restoring = false;
+      }
+    },
+
+    showMessage(text, type) {
+      this.message = text;
+      this.messageType = type;
+    },
+
+    clearMessage() {
+      this.message = '';
+    },
+  };
+}
+</script>
+{% endblock %}

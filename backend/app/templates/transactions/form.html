@@ -1,0 +1,1059 @@
+{% extends "base.html" %}
+{% block title %}{% if mode == "new" %}新規入力{% else %}取引編集{% endif %}{% endblock %}
+
+{% block content %}
+<h1>{% if mode == "new" %}取引入力{% else %}取引編集{% endif %}</h1>
+
+{% if is_copy %}
+<div class="copy-notice">
+  コピー元のデータを基に入力しています。内容を確認して「保存」を押すと新規登録されます。
+</div>
+{% endif %}
+
+<div x-data="transactionForm()" x-init="init()">
+
+  {% if mode == "new" %}
+  <!-- パターンから入力ボタン群 -->
+  <div style="margin-bottom:1rem;display:flex;gap:0.75rem;flex-wrap:wrap;">
+    <button type="button" class="btn-primary" @click="openPatternModal()">⚡ パターンから入力</button>
+    <button type="button" class="btn-secondary" @click="openGroupPatternModal()">🗂 グループから一括入力</button>
+  </div>
+
+  <!-- パターン選択モーダル -->
+  <div x-show="showPatternModal" x-cloak class="modal-overlay" @click.self="showPatternModal=false" @keydown.escape.window="showPatternModal=false">
+    <div class="modal-container" style="max-width:800px;max-height:85vh;display:flex;flex-direction:column;">
+      <div class="modal-header">
+        <h3>パターンから入力</h3>
+        <button class="modal-close" @click="showPatternModal=false">&times;</button>
+      </div>
+      <div class="modal-body" style="overflow-y:auto;flex:1;">
+
+        <!-- 検索 -->
+        <div style="margin-bottom:1rem;">
+          <input type="text" x-model="patternSearch" placeholder="パターン名・カテゴリで絞り込み…" class="input-full">
+        </div>
+
+        <!-- 頻度タブ -->
+        <div class="tab-bar" style="display:flex;gap:0.25rem;margin-bottom:1rem;flex-wrap:wrap;">
+          <template x-for="tab in patternTabs" :key="tab.key">
+            <button type="button"
+                    :class="patternTab === tab.key ? 'btn-primary btn-sm' : 'btn-secondary btn-sm'"
+                    @click="patternTab = tab.key"
+                    x-text="tab.label + '（' + filteredPatternsByFreq(tab.key).length + '）'">
+            </button>
+          </template>
+        </div>
+
+        <div x-show="patternLoading" style="padding:2rem;text-align:center;">読み込み中…</div>
+        <div x-show="!patternLoading && filteredPatterns().length === 0" style="padding:2rem;text-align:center;color:#888;">
+          該当するパターンがありません。<a href="/patterns" target="_blank">パターン管理</a>から登録できます。
+        </div>
+
+        <table x-show="!patternLoading && filteredPatterns().length > 0" class="data-table">
+          <thead>
+            <tr>
+              <th>パターン名</th>
+              <th>カテゴリ</th>
+              <th>アカウント</th>
+              <th class="text-right">金額</th>
+              <th>メモ</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="p in filteredPatterns()" :key="p.id">
+              <tr>
+                <td x-text="p.name"></td>
+                <td x-text="p.category_full_path" class="text-sm"></td>
+                <td x-text="p.account_code"></td>
+                <td class="text-right">
+                  <span :class="p.is_income ? 'amount-income' : 'amount-expense'"
+                        x-text="(p.is_income ? '+' : '') + '¥' + (p.typical_amount || 0).toLocaleString()"></span>
+                </td>
+                <td x-text="p.memo_template || '—'" class="text-sm"></td>
+                <td>
+                  <button type="button" class="btn-copy" @click="applyPattern(p)">↑ 使う</button>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+      <div class="modal-footer" style="padding:0.75rem 1rem;text-align:right;">
+        <button type="button" class="btn-secondary" @click="showPatternModal=false">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- パターングループから一括入力モーダル -->
+  <div x-show="showGroupPatternModal" x-cloak class="modal-overlay" @click.self="showGroupPatternModal=false" @keydown.escape.window="showGroupPatternModal=false">
+    <div class="modal-container" style="max-width:900px;max-height:85vh;display:flex;flex-direction:column;">
+      <div class="modal-header">
+        <h3>グループから一括入力</h3>
+        <button class="modal-close" @click="showGroupPatternModal=false">&times;</button>
+      </div>
+      <div class="modal-body" style="overflow-y:auto;flex:1;">
+
+        <!-- グループ選択ステップ -->
+        <div x-show="groupPatternStep === 'select_group'">
+          <p class="help-text" style="margin-bottom:1rem;">パターングループを選択してください。</p>
+          <div x-show="groupPatternLoading" style="padding:2rem;text-align:center;">読み込み中…</div>
+          <div x-show="!groupPatternLoading && allPatternGroups.length === 0" style="padding:2rem;text-align:center;color:#888;">
+            パターングループが登録されていません。<a href="/patterns" target="_blank">パターン管理</a>から登録できます。
+          </div>
+          <div x-show="!groupPatternLoading && allPatternGroups.length > 0"
+               style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:0.75rem;">
+            <template x-for="pg in allPatternGroups" :key="pg.id">
+              <button type="button"
+                      @click="selectPatternGroup(pg)"
+                      :style="pg.is_transfer_only ? 'text-align:left;padding:0.75rem 1rem;border:1px solid #acd6f5;border-radius:6px;background:#f0f7ff;cursor:pointer;transition:border-color 0.15s,background 0.15s;' : 'text-align:left;padding:0.75rem 1rem;border:1px solid #dee2e6;border-radius:6px;background:#fff;cursor:pointer;transition:border-color 0.15s,background 0.15s;'"
+                      @mouseover="$el.style.borderColor='#4a90d9';$el.style.background='#e0f0ff'"
+                      @mouseout="$el.style.borderColor=pg.is_transfer_only?'#acd6f5':'#dee2e6';$el.style.background=pg.is_transfer_only?'#f0f7ff':'#fff'">
+                <div style="font-weight:600;margin-bottom:0.25rem;">
+                  <span x-text="pg.name"></span>
+                  <span x-show="pg.is_transfer_only"
+                        style="display:inline-block;margin-left:5px;padding:1px 5px;font-size:0.7rem;background:#2980b9;color:#fff;border-radius:3px;vertical-align:middle;">資金移動専用</span>
+                </div>
+                <div style="font-size:0.8rem;color:#666;" x-text="pg.description || ''"></div>
+                <div style="font-size:0.8rem;color:#888;margin-top:0.25rem;"
+                     x-text="getPatternsForGroup(pg.id).length + '件のパターン'"></div>
+              </button>
+            </template>
+          </div>
+        </div>
+
+        <!-- パターン選択・金額調整ステップ（通常グループ） -->
+        <div x-show="groupPatternStep === 'select_patterns' && !selectedGroupIsTransfer">
+          <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;flex-wrap:wrap;">
+            <button type="button" class="btn-secondary btn-sm" @click="groupPatternStep='select_group'">← グループ選択に戻る</button>
+            <span style="font-weight:600;" x-text="selectedGroupName"></span>
+          </div>
+
+          <!-- 共通日付 -->
+          <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem;padding:0.75rem;background:#f8f9fa;border-radius:6px;">
+            <label style="font-weight:500;white-space:nowrap;">登録日付：</label>
+            <input type="date" x-model="groupPatternDate" class="input" style="width:160px;">
+            <span class="help-text">すべてのパターンに適用されます</span>
+          </div>
+
+          <div x-show="groupPatternItems.length === 0" style="padding:1.5rem;text-align:center;color:#888;">
+            このグループにパターンがありません。
+          </div>
+
+          <table x-show="groupPatternItems.length > 0" class="data-table">
+            <thead>
+              <tr>
+                <th><input type="checkbox" @change="toggleAllGroupItems($event)"></th>
+                <th>パターン名</th>
+                <th>カテゴリ</th>
+                <th>アカウント</th>
+                <th class="text-right">支出（円）</th>
+                <th class="text-right">収入（円）</th>
+                <th>メモ</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="(item, idx) in groupPatternItems" :key="item.pattern_id">
+                <tr :style="!item.checked ? 'opacity:0.45;' : ''">
+                  <td><input type="checkbox" x-model="item.checked"></td>
+                  <td x-text="item.name" class="text-sm"></td>
+                  <td x-text="item.category_full_path" class="text-sm"></td>
+                  <td x-text="item.account_code" class="text-sm"></td>
+                  <td>
+                    <input type="number" x-model.number="item.expense_amount" min="0" step="1"
+                           class="input-sm input-amount text-right" :disabled="!item.checked">
+                  </td>
+                  <td>
+                    <input type="number" x-model.number="item.income_amount" min="0" step="1"
+                           class="input-sm input-amount text-right" :disabled="!item.checked">
+                  </td>
+                  <td>
+                    <input type="text" x-model="item.memo" class="input-sm" maxlength="500" :disabled="!item.checked">
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- パターン選択・金額調整ステップ（資金移動専用グループ） -->
+        <div x-show="groupPatternStep === 'select_patterns' && selectedGroupIsTransfer">
+          <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;flex-wrap:wrap;">
+            <button type="button" class="btn-secondary btn-sm" @click="groupPatternStep='select_group'">← グループ選択に戻る</button>
+            <span style="font-weight:600;" x-text="selectedGroupName"></span>
+            <span style="padding:2px 8px;font-size:0.8rem;background:#2980b9;color:#fff;border-radius:3px;">資金移動専用</span>
+          </div>
+
+          <!-- 共通日付 -->
+          <div style="display:flex;align-items:center;gap:0.75rem;margin-bottom:1rem;padding:0.75rem;background:#f8f9fa;border-radius:6px;">
+            <label style="font-weight:500;white-space:nowrap;">登録日付：</label>
+            <input type="date" x-model="groupPatternDate" class="input" style="width:160px;">
+            <span class="help-text">すべてのパターンに適用されます</span>
+          </div>
+
+          <div x-show="transferGroupItems.length === 0" style="padding:1.5rem;text-align:center;color:#888;">
+            このグループに資金移動パターンがありません。
+          </div>
+
+          <table x-show="transferGroupItems.length > 0" class="data-table">
+            <thead>
+              <tr>
+                <th><input type="checkbox" @change="toggleAllTransferItems($event)"></th>
+                <th>パターン名</th>
+                <th>送金元</th>
+                <th>送金先</th>
+                <th class="text-right">金額（円）</th>
+                <th>メモ</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="item in transferGroupItems" :key="item.pattern_id">
+                <tr :style="!item.checked ? 'opacity:0.45;' : ''">
+                  <td><input type="checkbox" x-model="item.checked"></td>
+                  <td x-text="item.name" class="text-sm"></td>
+                  <td>
+                    <select @change="item.from_account_id = parseInt($event.target.value) || ''"
+                            class="input-sm" :disabled="!item.checked">
+                      <option value="">— 選択 —</option>
+                      <template x-for="a in accountsList" :key="a.id">
+                        <option :value="a.id" :selected="a.id == item.from_account_id" x-text="a.code"></option>
+                      </template>
+                    </select>
+                  </td>
+                  <td>
+                    <select @change="item.to_account_id = parseInt($event.target.value) || ''"
+                            class="input-sm" :disabled="!item.checked">
+                      <option value="">— 選択 —</option>
+                      <template x-for="a in accountsList" :key="a.id">
+                        <option :value="a.id" :selected="a.id == item.to_account_id" x-text="a.code"></option>
+                      </template>
+                    </select>
+                  </td>
+                  <td>
+                    <input type="number" x-model.number="item.amount" min="0" step="1"
+                           class="input-sm input-amount text-right" :disabled="!item.checked">
+                  </td>
+                  <td>
+                    <input type="text" x-model="item.memo" class="input-sm" maxlength="500" :disabled="!item.checked">
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+      <div class="modal-footer" style="padding:0.75rem 1rem;display:flex;gap:0.5rem;justify-content:flex-end;">
+        <button type="button" class="btn-secondary" @click="showGroupPatternModal=false">閉じる</button>
+        <!-- 通常グループ用ボタン -->
+        <button type="button" class="btn-primary"
+                x-show="groupPatternStep === 'select_patterns' && !selectedGroupIsTransfer"
+                @click="addGroupPatternsToBulk()"
+                :disabled="groupPatternItems.filter(i=>i.checked).length === 0"
+                x-text="'一括登録に追加（' + groupPatternItems.filter(i=>i.checked).length + '件）'">
+        </button>
+        <!-- 資金移動専用グループ用ボタン -->
+        <button type="button" class="btn-primary"
+                x-show="groupPatternStep === 'select_patterns' && selectedGroupIsTransfer"
+                @click="submitTransferGroupBulk()"
+                :disabled="transferGroupItems.filter(i=>i.checked).length === 0 || transferGroupUploading"
+                x-text="transferGroupUploading ? '登録中...' : '資金移動を一括登録（' + transferGroupItems.filter(i=>i.checked).length + '件）'">
+        </button>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- フリーワード検索 -->
+  <div class="search-section card">
+    <h3>フリーワード検索</h3>
+    <div class="search-row">
+      <input type="text" x-model="searchQuery" @input.debounce.400ms="doSearch()"
+             placeholder="メモ・カテゴリで検索..." class="input-full">
+    </div>
+    <div x-show="searchResults.length > 0" class="recent-list">
+      <table class="table table-sm">
+        <thead>
+          <tr>
+            <th class="col-check">
+              <input type="checkbox" @change="toggleAllBulk($event)" title="すべて選択">
+            </th>
+            <th>日付</th><th>カテゴリ</th><th>アカウント</th><th>グループ</th><th>メモ</th>
+            <th class="text-right">支出</th><th class="text-right">収入</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="r in searchResults" :key="r.id">
+            <tr :class="isSelectedForBulk(r.id) ? 'row-selected' : ''">
+              <td class="col-check">
+                <input type="checkbox" :checked="isSelectedForBulk(r.id)" @change="toggleBulkSelect(r)">
+              </td>
+              <td x-text="r.date"></td>
+              <td x-text="r.category_full_path"></td>
+              <td x-text="r.account_code"></td>
+              <td x-text="r.group_code || ''"></td>
+              <td x-text="r.memo || ''"></td>
+              <td class="text-right amount-expense" x-text="r.expense_amount ? '¥' + r.expense_amount.toLocaleString() : ''"></td>
+              <td class="text-right amount-income" x-text="r.income_amount ? '¥' + r.income_amount.toLocaleString() : ''"></td>
+              <td><button type="button" class="btn-copy" @click="copyFrom(r)">↑ 使う</button></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 一括登録パネル -->
+  <div x-show="selectedForBulk.length > 0" class="card bulk-section">
+    <div class="bulk-header">
+      <h3>一括登録 <span class="bulk-count" x-text="selectedForBulk.length + '件選択中'"></span></h3>
+      <p class="help-text">日付・金額を変更して「一括登録実行」を押してください。</p>
+    </div>
+    <div class="table-scroll">
+      <table class="table table-sm">
+        <thead>
+          <tr>
+            <th>日付</th>
+            <th>カテゴリ</th>
+            <th>アカウント</th>
+            <th>グループ</th>
+            <th>メモ</th>
+            <th class="text-right">支出（円）</th>
+            <th class="text-right">収入（円）</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <template x-for="(item, idx) in selectedForBulk" :key="item._bulk_id">
+            <tr>
+              <td><input type="date" x-model="item.bulk_date" class="input-sm input-date"></td>
+              <td x-text="item.category_full_path" class="text-sm"></td>
+              <td x-text="item.account_code" class="text-sm"></td>
+              <td x-text="item.group_code || ''" class="text-sm"></td>
+              <td x-text="item.memo || ''" class="text-sm"></td>
+              <td><input type="number" x-model="item.bulk_expense" min="0" step="1" class="input-sm input-amount text-right"></td>
+              <td><input type="number" x-model="item.bulk_income" min="0" step="1" class="input-sm input-amount text-right"></td>
+              <td><button type="button" class="btn-danger-sm" @click="removeFromBulk(idx)">×</button></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+    <div class="form-actions">
+      <button type="button" class="btn-primary" @click="submitBulk()" :disabled="bulkUploading">
+        <span x-show="!bulkUploading" x-text="'一括登録実行（' + selectedForBulk.length + '件）'"></span>
+        <span x-show="bulkUploading">登録中...</span>
+      </button>
+      <button type="button" class="btn-secondary" @click="selectedForBulk = []">クリア</button>
+    </div>
+  </div>
+
+  <!-- 入力フォーム -->
+  <form @submit.prevent="submitForm()" class="transaction-form card">
+
+    <div class="form-grid">
+      <!-- 日付 -->
+      <div class="form-group">
+        <label for="date">日付 <span class="required">*</span></label>
+        <input type="date" id="date" name="date" x-model="form.date" required class="input">
+      </div>
+
+      <!-- 親カテゴリ -->
+      <div class="form-group">
+        <label for="parent_cat">親カテゴリ <span class="required">*</span></label>
+        <select id="parent_cat" x-model="parentCatId" @change="onParentCatChange(); clearAppliedPatternIfManual()" class="input">
+          <option value="">-- 選択 --</option>
+          {% for cat in parent_categories %}
+          <option value="{{ cat.id }}" data-is-transfer="{{ 'true' if cat.is_transfer else 'false' }}">{{ cat.full_path }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- 子カテゴリ（資金移動以外） -->
+      <div class="form-group" x-show="!isTransferCategory">
+        <label for="category_id">子カテゴリ</label>
+        <select id="category_id" name="category_id" x-model="form.category_id" @change="clearAppliedPatternIfManual()" class="input" :disabled="!parentCatId">
+          <option value="">-- 子カテゴリを選択 --</option>
+          <template x-for="child in childCategories" :key="child.id">
+            <option :value="child.id" x-text="child.name"></option>
+          </template>
+        </select>
+        <p class="help-text" x-show="childCategories.length === 0 && parentCatId">（子カテゴリなし — 親カテゴリを直接使用）</p>
+      </div>
+
+      <!-- アカウント（資金移動以外） -->
+      <div class="form-group" x-show="!isTransferCategory">
+        <label for="account_id">アカウント <span class="required">*</span></label>
+        <select id="account_id" name="account_id" x-model="form.account_id" @change="clearAppliedPatternIfManual()" class="input" :required="!isTransferCategory">
+          <option value="">-- 選択 --</option>
+          {% for acc in accounts %}
+          <option value="{{ acc.id }}">{{ acc.code }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <!-- 出金額（資金移動以外） -->
+      <div class="form-group" x-show="!isTransferCategory">
+        <label for="expense_amount">出金額（円）</label>
+        <input type="number" id="expense_amount" name="expense_amount" x-model="form.expense_amount"
+               min="0" step="1" class="input text-right" placeholder="0">
+      </div>
+
+      <!-- 入金額（資金移動以外） -->
+      <div class="form-group" x-show="!isTransferCategory">
+        <label for="income_amount">入金額（円）</label>
+        <input type="number" id="income_amount" name="income_amount" x-model="form.income_amount"
+               min="0" step="1" class="input text-right" placeholder="0">
+      </div>
+
+      <!-- 資金移動フォーム -->
+      <template x-if="isTransferCategory">
+        <div class="form-group-wide" style="display:contents">
+          <div class="form-group">
+            <label>送金元アカウント <span class="required">*</span></label>
+            <select x-model="form.account_id" @change="clearAppliedPatternIfManual()" class="input">
+              <option value="">-- 選択 --</option>
+              {% for acc in accounts %}
+              <option value="{{ acc.id }}">{{ acc.code }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>送金先アカウント <span class="required">*</span></label>
+            <select x-model="form.to_account_id" @change="clearAppliedPatternIfManual()" class="input">
+              <option value="">-- 選択 --</option>
+              {% for acc in accounts %}
+              <option value="{{ acc.id }}">{{ acc.code }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>金額（円）<span class="required">*</span></label>
+            <input type="number" x-model="form.transfer_amount" min="0" step="1" class="input text-right" placeholder="0">
+          </div>
+        </div>
+      </template>
+
+      <!-- メモ -->
+      <div class="form-group form-group-wide">
+        <label for="memo">メモ</label>
+        <input type="text" id="memo" name="memo" x-model="form.memo" class="input" placeholder="店名・内容など">
+      </div>
+
+      <!-- グループ -->
+      <div class="form-group">
+        <label for="group_id">グループ</label>
+        <select id="group_id" name="group_id" x-model="form.group_id" class="input">
+          <option value="">-- 選択 --</option>
+          {% for grp in groups %}
+          <option value="{{ grp.id }}">{{ grp.code }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div><!-- /form-grid -->
+
+    <!-- カテゴリ選択後の直近10件 -->
+    <div x-show="recentItems.length > 0" class="recent-section">
+      <h3>このカテゴリの直近10件</h3>
+      <table class="table table-sm">
+        <thead>
+          <tr><th>日付</th><th>アカウント</th><th>メモ</th><th class="text-right">支出</th><th class="text-right">収入</th><th></th></tr>
+        </thead>
+        <tbody>
+          <template x-for="r in recentItems" :key="r.id">
+            <tr>
+              <td x-text="r.date"></td>
+              <td x-text="r.account_code"></td>
+              <td x-text="r.memo || ''"></td>
+              <td class="text-right amount-expense" x-text="r.expense_amount ? '¥' + r.expense_amount.toLocaleString() : ''"></td>
+              <td class="text-right amount-income" x-text="r.income_amount ? '¥' + r.income_amount.toLocaleString() : ''"></td>
+              <td><button type="button" class="btn-copy" @click="copyFrom(r)">↑ 使う</button></td>
+            </tr>
+          </template>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- パターン適用時の次回支払日表示 -->
+    <div x-show="appliedPattern && appliedPattern.payment_day_of_month"
+         style="margin-top:0.75rem;padding:0.6rem 1rem;background:#fff7ed;border:1px solid #fed7aa;border-radius:6px;font-size:13px;color:#9a3412;">
+      <span>📅 このパターンの支払日：
+        <strong x-show="appliedPattern && appliedPattern.frequency === 'monthly'"
+                x-text="appliedPattern ? '毎月' + appliedPattern.payment_day_of_month + '日' : ''"></strong>
+        <strong x-show="appliedPattern && appliedPattern.frequency === 'annual' && appliedPattern.payment_month_of_year"
+                x-text="appliedPattern ? '毎年' + appliedPattern.payment_month_of_year + '月' + appliedPattern.payment_day_of_month + '日' : ''"></strong>
+        ／ 保存後に次回支払日をお知らせします。
+      </span>
+    </div>
+
+    <div class="form-actions">
+      <button type="submit" class="btn-primary">保存</button>
+      <a href="/transactions{{ return_url }}" class="btn-secondary">キャンセル</a>
+    </div>
+  </form>
+
+  <!-- 次回支払日トースト -->
+  <div x-show="showNextPaymentToast" x-cloak class="next-payment-toast">
+    <div>✅ 取引を登録しました</div>
+    <div style="margin-top:0.4rem;font-size:13px;color:#94a3b8;">次回支払日</div>
+    <div class="toast-date" x-text="nextPaymentDateStr"></div>
+    <div style="margin-top:0.5rem;font-size:12px;color:#64748b;">3秒後に取引一覧へ移動します…</div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const _ACCOUNTS_LIST = {{ accounts_data | tojson }};
+const _RETURN_URL = '/transactions' + {{ return_url | tojson }};
+const _INIT_PATTERN = {{ init_pattern | tojson if init_pattern else 'null' }};
+
+function transactionForm() {
+  return {
+    mode: '{{ mode }}',
+    formAction: '{{ "/api/v1/transactions/" + tx.id|string if tx else "/api/v1/transactions" }}',
+    parentCatId: '{{ (tx.parent_category_id if tx.parent_category_id else tx.category_id) if tx else "" }}',
+    _initCategoryId: '{{ tx.category_id if tx else "" }}',
+    isTransferCategory: false,
+    childCategories: [],
+    recentItems: [],
+    searchQuery: '',
+    searchResults: [],
+    selectedForBulk: [],
+    bulkUploading: false,
+    _bulkIdCounter: 0,
+
+    // パターンモーダル
+    showPatternModal: false,
+    patternLoading: false,
+    allPatterns: [],
+    patternSearch: '',
+    patternTab: 'all',
+    patternTabs: [
+      { key: 'all',     label: 'すべて' },
+      { key: 'monthly', label: '月次' },
+      { key: 'annual',  label: '年次' },
+      { key: 'daily',   label: '日次' },
+      { key: 'other',   label: 'その他' },
+    ],
+
+    // 適用中パターン（次回支払日計算用）
+    appliedPattern: null,
+    // applyPattern() 内でのプログラム的な category/account 変更かどうかを区別するフラグ。
+    // これが立っていない状態で category/account が変更された場合はユーザーの手動変更とみなし、
+    // appliedPattern を解除する（送信される pattern_id が実際の category/account と
+    // 食い違ったまま送信されるのを防ぐ）。
+    _applyingPattern: false,
+    showNextPaymentToast: false,
+    nextPaymentDateStr: '',
+
+    // グループから一括入力モーダル
+    showGroupPatternModal: false,
+    groupPatternLoading: false,
+    groupPatternStep: 'select_group',
+    allPatternGroups: [],
+    selectedGroupId: null,
+    selectedGroupName: '',
+    selectedGroupIsTransfer: false,
+    groupPatternItems: [],
+    transferGroupItems: [],
+    transferGroupUploading: false,
+    groupPatternDate: '{{ today }}',
+    accountsList: _ACCOUNTS_LIST,
+
+    form: {
+      date: {{ (initial_date if initial_date else (today if is_copy else (tx.date if tx else today))) | tojson }},
+      category_id: '{{ tx.category_id if tx else "" }}',
+      account_id: '{{ tx.account_id if tx else "" }}',
+      to_account_id: '',
+      transfer_amount: 0,
+      expense_amount: {{ tx.expense_amount if tx else 0 }},
+      income_amount: {{ tx.income_amount if tx else 0 }},
+      memo: '{{ tx.memo if tx else "" }}',
+      group_id: '{{ tx.group_id if tx else "" }}',
+    },
+
+    async init() {
+      if (_INIT_PATTERN) {
+        // URLパラメータ pattern_id 経由でパターン自動適用
+        await this.applyPattern(_INIT_PATTERN);
+        return;
+      }
+      if (this.parentCatId) {
+        const select = document.getElementById('parent_cat');
+        if (select) {
+          const opt = Array.from(select.options).find(o => o.value === String(this.parentCatId));
+          this.isTransferCategory = opt ? opt.dataset.isTransfer === 'true' : false;
+        }
+        const catId = this._initCategoryId ? String(this._initCategoryId) : '';
+        await this.loadChildren(this.parentCatId);
+        // loadChildren() が childCategories を更新すると Alpine.js の x-for が同期的にオプションを描画する。
+        // x-model は同値では effect を再発火しないため、一度 '' に変えてから catId をセットして強制同期する。
+        this.form.category_id = '';
+        this.form.category_id = catId;
+        // Alpine.js の effect が期待通りに動作しない場合のフォールバックとして DOM も直接更新する
+        const childSelect = document.getElementById('category_id');
+        if (childSelect) childSelect.value = catId;
+        await this.loadRecent(catId);
+      }
+    },
+
+    async submitForm() {
+      if (this.isTransferCategory) {
+        if (!this.form.account_id || !this.form.to_account_id) {
+          alert('送金元・送金先アカウントを選択してください');
+          return;
+        }
+        if (parseInt(this.form.account_id) === parseInt(this.form.to_account_id)) {
+          alert('送金元と送金先に同じアカウントは選択できません');
+          return;
+        }
+        const payload = {
+          date: this.form.date,
+          from_account_id: parseInt(this.form.account_id),
+          to_account_id: parseInt(this.form.to_account_id),
+          amount: parseInt(this.form.transfer_amount) || 0,
+          memo: this.form.memo || null,
+          group_id: this.form.group_id ? parseInt(this.form.group_id) : null,
+          pattern_id: this.appliedPattern ? this.appliedPattern.id : null,
+        };
+        const res = await fetch('/api/v1/transactions/transfer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (res.ok) {
+          window.location.href = _RETURN_URL;
+        } else {
+          const err = await res.json();
+          alert('エラー: ' + JSON.stringify(err.detail || err));
+        }
+        return;
+      }
+
+      const categoryId = parseInt(this.form.category_id) || parseInt(this._initCategoryId);
+      if (!categoryId) {
+        alert('カテゴリを選択してください');
+        return;
+      }
+      const payload = {
+        date: this.form.date,
+        category_id: categoryId,
+        account_id: parseInt(this.form.account_id),
+        income_amount: parseInt(this.form.income_amount) || 0,
+        expense_amount: parseInt(this.form.expense_amount) || 0,
+        memo: this.form.memo || null,
+        group_id: this.form.group_id ? parseInt(this.form.group_id) : null,
+        is_transfer: false,
+      };
+      // pattern_id は新規作成時のみ送信する（TransactionUpdate は pattern_id の更新に非対応）
+      if (this.mode !== 'edit') {
+        payload.pattern_id = this.appliedPattern ? this.appliedPattern.id : null;
+      }
+      const url = this.mode === 'edit' ? this.formAction : '/api/v1/transactions';
+      const method = this.mode === 'edit' ? 'PUT' : 'POST';
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (res.ok) {
+        this._redirectWithNextPayment(payload.date);
+      } else {
+        const err = await res.json();
+        alert('エラー: ' + JSON.stringify(err.detail || err));
+      }
+    },
+
+    _redirectWithNextPayment(txDateStr) {
+      if (this.appliedPattern && this.appliedPattern.payment_day_of_month) {
+        const next = this._computeNextPaymentDate(this.appliedPattern, txDateStr);
+        if (next) {
+          this.nextPaymentDateStr = next;
+          this.showNextPaymentToast = true;
+          setTimeout(() => { window.location.href = _RETURN_URL; }, 3000);
+          return;
+        }
+      }
+      window.location.href = _RETURN_URL;
+    },
+
+    _computeNextPaymentDate(pattern, txDateStr) {
+      const day = pattern.payment_day_of_month;
+      if (!day) return null;
+      const tx = new Date(txDateStr);
+      const year = tx.getFullYear();
+      const month = tx.getMonth(); // 0-indexed
+
+      if (pattern.frequency === 'monthly') {
+        const nextMonth = month + 1;
+        const nextYear = nextMonth >= 12 ? year + 1 : year;
+        const adjMonth = nextMonth >= 12 ? 0 : nextMonth;
+        const daysInMonth = new Date(nextYear, adjMonth + 1, 0).getDate();
+        const adjDay = Math.min(day, daysInMonth);
+        return `${nextYear}年${adjMonth + 1}月${adjDay}日`;
+      } else if (pattern.frequency === 'annual' && pattern.payment_month_of_year) {
+        const payMonth = pattern.payment_month_of_year - 1;
+        const thisYearDate = new Date(year, payMonth, day);
+        if (thisYearDate > tx) {
+          return `${year}年${pattern.payment_month_of_year}月${day}日`;
+        } else {
+          return `${year + 1}年${pattern.payment_month_of_year}月${day}日`;
+        }
+      }
+      return null;
+    },
+
+    async onParentCatChange() {
+      this.form.category_id = '';
+      this.form.to_account_id = '';
+      this.form.transfer_amount = 0;
+      this.recentItems = [];
+
+      const select = document.getElementById('parent_cat');
+      const option = select ? select.options[select.selectedIndex] : null;
+      this.isTransferCategory = option ? option.dataset.isTransfer === 'true' : false;
+
+      if (this.parentCatId && !this.isTransferCategory) {
+        await this.loadChildren(this.parentCatId);
+        // 子がない場合は親カテゴリで直近取得
+        if (this.childCategories.length === 0) {
+          await this.loadRecent(this.parentCatId);
+          this.form.category_id = this.parentCatId;
+        }
+      } else {
+        this.childCategories = [];
+      }
+    },
+
+    async loadChildren(parentId) {
+      const res = await fetch(`/api/v1/categories/${parentId}/children`);
+      this.childCategories = await res.json();
+    },
+
+    async loadRecent(categoryId) {
+      if (!categoryId) return;
+      const res = await fetch(`/api/v1/transactions/recent/by-category/${categoryId}`);
+      this.recentItems = await res.json();
+    },
+
+    async doSearch() {
+      if (this.searchQuery.length < 1) { this.searchResults = []; return; }
+      const res = await fetch(`/api/v1/transactions/search?q=${encodeURIComponent(this.searchQuery)}&limit=20`);
+      this.searchResults = await res.json();
+    },
+
+    // ── 「使う」ボタン：フォームに転記（カテゴリも復元）──
+    async copyFrom(r) {
+      this.form.account_id = String(r.account_id);
+      this.form.expense_amount = r.expense_amount;
+      this.form.income_amount = r.income_amount;
+      this.form.memo = r.memo || '';
+      this.form.group_id = r.group_id ? String(r.group_id) : '';
+
+      // 親カテゴリを特定し子カテゴリを読み込む
+      const parentId = r.parent_category_id || r.category_id;
+      this.parentCatId = String(parentId);
+      await this.loadChildren(parentId);
+      if (this.childCategories.length > 0) {
+        this.form.category_id = String(r.category_id);
+      } else {
+        this.form.category_id = String(parentId);
+      }
+      await this.loadRecent(r.category_id);
+    },
+
+    // ── 一括登録 ──
+    isSelectedForBulk(id) {
+      return this.selectedForBulk.some(item => item._orig_id === id);
+    },
+
+    toggleBulkSelect(r) {
+      const idx = this.selectedForBulk.findIndex(item => item._orig_id === r.id);
+      if (idx >= 0) {
+        this.selectedForBulk.splice(idx, 1);
+      } else {
+        this.selectedForBulk.push({
+          ...r,
+          _orig_id: r.id,
+          _bulk_id: ++this._bulkIdCounter,
+          bulk_date: r.date,
+          bulk_expense: r.expense_amount,
+          bulk_income: r.income_amount,
+        });
+      }
+    },
+
+    toggleAllBulk(event) {
+      if (event.target.checked) {
+        for (const r of this.searchResults) {
+          if (!this.isSelectedForBulk(r.id)) this.toggleBulkSelect(r);
+        }
+      } else {
+        // 現在の検索結果分だけ解除
+        const ids = new Set(this.searchResults.map(r => r.id));
+        this.selectedForBulk = this.selectedForBulk.filter(item => !ids.has(item._orig_id));
+      }
+    },
+
+    removeFromBulk(idx) {
+      this.selectedForBulk.splice(idx, 1);
+    },
+
+    // ── グループから一括入力 ──
+    async openGroupPatternModal() {
+      this.showGroupPatternModal = true;
+      this.groupPatternStep = 'select_group';
+      this.groupPatternDate = this.form.date || '{{ today }}';
+      this.groupPatternLoading = true;
+      try {
+        const [groupsRes, patternsRes] = await Promise.all([
+          fetch('/api/v1/pattern-groups'),
+          fetch('/api/v1/patterns'),
+        ]);
+        this.allPatternGroups = await groupsRes.json();
+        this.allPatterns = await patternsRes.json();
+      } finally {
+        this.groupPatternLoading = false;
+      }
+    },
+
+    getPatternsForGroup(groupId) {
+      return this.allPatterns.filter(p => p.pattern_group_id === groupId && p.is_active);
+    },
+
+    selectPatternGroup(pg) {
+      this.selectedGroupId = pg.id;
+      this.selectedGroupName = pg.name;
+      this.selectedGroupIsTransfer = pg.is_transfer_only || false;
+      const patterns = this.getPatternsForGroup(pg.id);
+
+      if (this.selectedGroupIsTransfer) {
+        // 資金移動専用グループ：資金移動パターンのみ
+        this.transferGroupItems = patterns
+          .filter(p => p.category_is_transfer)
+          .map(p => ({
+            pattern_id: p.id,
+            name: p.name,
+            from_account_id: p.account_id || '',
+            to_account_id: p.to_account_id || '',
+            group_id: p.group_id || null,
+            amount: p.typical_amount || 0,
+            memo: p.memo_template || '',
+            checked: true,
+          }));
+        this.groupPatternItems = [];
+      } else {
+        // 通常グループ：資金移動パターンを除外
+        const transferPatterns = patterns.filter(p => p.category_is_transfer);
+        if (transferPatterns.length > 0) {
+          const names = transferPatterns.map(p => `「${p.name}」`).join('');
+          alert(`${names}は資金移動パターンのため一括登録には追加されません。`);
+        }
+        this.groupPatternItems = patterns
+          .filter(p => !p.category_is_transfer)
+          .map(p => ({
+            pattern_id: p.id,
+            name: p.name,
+            category_id: p.category_id,
+            account_id: p.account_id,
+            group_id: p.group_id || null,
+            category_full_path: p.category_full_path || '',
+            account_code: p.account_code || '',
+            group_code: p.group_code || '',
+            expense_amount: p.is_income ? 0 : (p.typical_amount || 0),
+            income_amount: p.is_income ? (p.typical_amount || 0) : 0,
+            memo: p.memo_template || '',
+            checked: true,
+          }));
+        this.transferGroupItems = [];
+      }
+      this.groupPatternStep = 'select_patterns';
+    },
+
+    toggleAllGroupItems(event) {
+      this.groupPatternItems.forEach(item => { item.checked = event.target.checked; });
+    },
+
+    toggleAllTransferItems(event) {
+      this.transferGroupItems.forEach(item => { item.checked = event.target.checked; });
+    },
+
+    async submitTransferGroupBulk() {
+      const checkedItems = this.transferGroupItems.filter(i => i.checked);
+      if (checkedItems.length === 0) return;
+      for (const item of checkedItems) {
+        if (!item.from_account_id || !item.to_account_id) {
+          alert(`「${item.name}」の送金元・送金先を選択してください`);
+          return;
+        }
+        if (parseInt(item.from_account_id) === parseInt(item.to_account_id)) {
+          alert(`「${item.name}」の送金元と送金先に同じアカウントは選択できません`);
+          return;
+        }
+      }
+      this.transferGroupUploading = true;
+      try {
+        for (const item of checkedItems) {
+          const payload = {
+            date: this.groupPatternDate,
+            from_account_id: parseInt(item.from_account_id),
+            to_account_id: parseInt(item.to_account_id),
+            amount: parseInt(item.amount) || 0,
+            memo: item.memo || null,
+            group_id: item.group_id || null,
+          };
+          const res = await fetch('/api/v1/transactions/transfer', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          if (!res.ok) {
+            const err = await res.json();
+            alert('登録エラー: ' + JSON.stringify(err.detail || err));
+            return;
+          }
+        }
+        window.location.href = '/transactions';
+      } finally {
+        this.transferGroupUploading = false;
+      }
+    },
+
+    addGroupPatternsToBulk() {
+      const checkedItems = this.groupPatternItems.filter(i => i.checked);
+      for (const item of checkedItems) {
+        this.selectedForBulk.push({
+          ...item,
+          _orig_id: 'pg_' + item.pattern_id + '_' + Date.now() + '_' + Math.random(),
+          _bulk_id: ++this._bulkIdCounter,
+          bulk_date: this.groupPatternDate,
+          bulk_expense: item.expense_amount,
+          bulk_income: item.income_amount,
+        });
+      }
+      this.showGroupPatternModal = false;
+    },
+
+    // ── パターンモーダル ──
+    async openPatternModal() {
+      this.showPatternModal = true;
+      this.patternSearch = '';
+      this.patternTab = 'all';
+      this.patternLoading = true;
+      try {
+        const res = await fetch('/api/v1/patterns');
+        this.allPatterns = await res.json();
+      } finally {
+        this.patternLoading = false;
+      }
+    },
+
+    filteredPatternsByFreq(freq) {
+      let base = freq === 'all' ? this.allPatterns : this.allPatterns.filter(p => p.frequency === freq);
+      if (this.patternSearch) {
+        const q = this.patternSearch.toLowerCase();
+        base = base.filter(p =>
+          p.name.toLowerCase().includes(q) ||
+          (p.category_full_path || '').toLowerCase().includes(q) ||
+          (p.account_code || '').toLowerCase().includes(q)
+        );
+      }
+      return base;
+    },
+
+    filteredPatterns() {
+      return this.filteredPatternsByFreq(this.patternTab);
+    },
+
+    async applyPattern(p) {
+      this.showPatternModal = false;
+      this._applyingPattern = true;
+      try {
+        this.appliedPattern = p;
+
+        // 親カテゴリをセットして子カテゴリ読み込みを委譲
+        const parentId = p.parent_category_id || p.category_id;
+        this.parentCatId = String(parentId);
+        await this.onParentCatChange();
+
+        // onParentCatChange はDOM参照で isTransferCategory を判定するが、
+        // Alpine.js の反映タイミングによりズレる場合があるため API レスポンスの値で上書き
+        if (p.category_is_transfer) {
+          this.isTransferCategory = true;
+        }
+
+        if (p.category_is_transfer) {
+          // 資金移動パターン: 送金元・送金先・金額をセット
+          this.form.account_id = String(p.account_id);
+          this.form.to_account_id = p.to_account_id ? String(p.to_account_id) : '';
+          this.form.transfer_amount = p.typical_amount || 0;
+        } else {
+          // 通常パターン: 子カテゴリ・金額をセット
+          if (this.childCategories.length > 0) {
+            this.form.category_id = String(p.category_id);
+            await this.loadRecent(p.category_id);
+          }
+          this.form.account_id = String(p.account_id);
+          if (p.is_income) {
+            this.form.income_amount = p.typical_amount;
+            this.form.expense_amount = 0;
+          } else {
+            this.form.expense_amount = p.typical_amount;
+            this.form.income_amount = 0;
+          }
+        }
+
+        this.form.group_id = p.group_id ? String(p.group_id) : '';
+        this.form.memo = p.memo_template || '';
+      } finally {
+        this._applyingPattern = false;
+      }
+    },
+
+    // category/account 系フィールドがユーザーの手動操作で変更された場合、
+    // 適用中のパターンを解除する。プログラム的な変更（applyPattern 実行中）では
+    // 解除しない。これを怠ると、パターン適用後に category/account だけ手で
+    // 変更して保存したときに、送信される pattern_id が実際の category/account と
+    // 食い違ったまま保存され、記録状況判定（is_current_period_recorded）が
+    // 誤った結果になる。
+    clearAppliedPatternIfManual() {
+      if (this._applyingPattern) return;
+      this.appliedPattern = null;
+    },
+
+    async submitBulk() {
+      if (this.selectedForBulk.length === 0) return;
+      this.bulkUploading = true;
+      try {
+        for (const item of this.selectedForBulk) {
+          const payload = {
+            date: item.bulk_date,
+            category_id: item.category_id,
+            account_id: item.account_id,
+            income_amount: parseInt(item.bulk_income) || 0,
+            expense_amount: parseInt(item.bulk_expense) || 0,
+            memo: item.memo || null,
+            group_id: item.group_id || null,
+            is_transfer: false,
+          };
+          const res = await fetch('/api/v1/transactions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          });
+          if (!res.ok) {
+            const err = await res.json();
+            alert('登録エラー: ' + JSON.stringify(err.detail || err));
+            return;
+          }
+        }
+        window.location.href = '/transactions';
+      } finally {
+        this.bulkUploading = false;
+      }
+    },
+  };
+}
+</script>
+{% endblock %}

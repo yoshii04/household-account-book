@@ -1,0 +1,621 @@
+{% extends "base.html" %}
+{% block title %}アカウント設定{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>アカウント設定</h1>
+  <p class="page-description">各アカウントの種別・開始日・初期残高・調整金額を設定します。調整金額は残高のズレを補正するための固定値です。</p>
+</div>
+
+{# 種別管理 #}
+<div class="card" style="margin-bottom:2rem;" x-data="typeManager()">
+  <h2 style="margin-bottom:1rem;">種別管理</h2>
+
+  <table class="data-table" style="margin-bottom:1rem;">
+    <thead>
+      <tr>
+        <th>コード</th>
+        <th>ラベル</th>
+        <th>表示順</th>
+        <th>操作</th>
+      </tr>
+    </thead>
+    <tbody>
+      <template x-for="t in $store.accountTypes" :key="t.id">
+        <tr x-data="typeRow(t)" x-init="init()">
+          <td>
+            <template x-if="!editing">
+              <span x-text="t.code"></span>
+            </template>
+            <template x-if="editing">
+              <input type="text" x-model="editCode" class="input-sm" maxlength="50">
+            </template>
+          </td>
+          <td>
+            <template x-if="!editing">
+              <span x-text="t.label"></span>
+            </template>
+            <template x-if="editing">
+              <input type="text" x-model="editLabel" class="input-sm" maxlength="100">
+            </template>
+          </td>
+          <td>
+            <template x-if="!editing">
+              <span x-text="t.sort_order"></span>
+            </template>
+            <template x-if="editing">
+              <input type="number" x-model.number="editSortOrder" class="input-sm" style="width:70px;" min="0">
+            </template>
+          </td>
+          <td>
+            <template x-if="!editing">
+              <span class="btn-group">
+                <button class="btn-sm btn-edit" @click="startEdit()">編集</button>
+                <button class="btn-sm btn-delete" @click="deleteType()" :disabled="deleting">
+                  <span x-text="deleting ? '削除中…' : '削除'"></span>
+                </button>
+              </span>
+            </template>
+            <template x-if="editing">
+              <span class="btn-group">
+                <button class="btn-sm btn-save" @click="saveEdit()" :disabled="saving || !editCode || !editLabel">
+                  <span x-text="saving ? '保存中…' : '保存'"></span>
+                </button>
+                <button class="btn-sm btn-cancel" @click="cancelEdit()">キャンセル</button>
+              </span>
+            </template>
+          </td>
+        </tr>
+      </template>
+    </tbody>
+  </table>
+
+  <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+    <div>
+      <label class="form-label">コード（英数字・ハイフン）</label>
+      <input type="text" x-model="newCode" class="input-sm" placeholder="例: savings" maxlength="50">
+    </div>
+    <div>
+      <label class="form-label">ラベル</label>
+      <input type="text" x-model="newLabel" class="input-sm" placeholder="例: 積立" maxlength="100">
+    </div>
+    <div>
+      <label class="form-label">表示順</label>
+      <input type="number" x-model.number="newSortOrder" class="input-sm" style="width:70px;" min="0">
+    </div>
+    <button class="btn-secondary" @click="addType()" :disabled="adding || !newCode || !newLabel">
+      <span x-text="adding ? '追加中…' : '＋ 種別を追加'"></span>
+    </button>
+  </div>
+  <div x-show="typeError" x-cloak style="color:#e53e3e;margin-top:6px;font-size:13px;" x-text="typeError"></div>
+</div>
+
+{# アカウント一覧 #}
+<div x-data='accountBulkManager({{ account_type_map | tojson }})'>
+
+  {# フラッシュメッセージ #}
+  <div x-show="message" x-cloak class="flash-area">
+    <div :class="'flash ' + messageType" x-text="message"></div>
+  </div>
+
+  {# 絞り込みバー #}
+  <div style="display:flex;gap:12px;align-items:center;margin-bottom:1rem;flex-wrap:wrap;">
+    <label style="font-size:13px;color:#64748b;white-space:nowrap;">種別で絞り込み:</label>
+    <select x-model="$store.accountFilter.type" class="input-sm" style="width:auto;"
+            @change="clearSelection()">
+      <option value="">すべて（{{ accounts | length }}件）</option>
+      <template x-for="t in $store.accountTypes" :key="t.code">
+        <option :value="t.code" x-text="t.label"></option>
+      </template>
+    </select>
+    <span style="font-size:13px;color:#64748b;" x-text="visibleCount() + '件表示'"></span>
+  </div>
+
+  {# 一括設定カード #}
+  <div class="card" style="margin-bottom:1.5rem;">
+    <h2 style="margin-bottom:6px;">一括設定</h2>
+    <p style="font-size:13px;color:#64748b;margin-bottom:1rem;">
+      ① 変更内容を選択 &nbsp;→&nbsp; ② 下の表でチェックボックスを選択 &nbsp;→&nbsp; ③「一括設定を実行」ボタンを押す
+    </p>
+
+    <div style="display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px;">
+
+      <div>
+        <label class="form-label">種別</label>
+        <select x-model="bulkType" class="input-sm">
+          <option value="">— 変更しない —</option>
+          <template x-for="t in $store.accountTypes" :key="t.code">
+            <option :value="t.code" x-text="t.label"></option>
+          </template>
+        </select>
+      </div>
+
+      <div>
+        <label class="form-label">分類</label>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <select x-model="classificationAction" class="input-sm">
+            <option value="none">— 変更しない —</option>
+            <option value="set">値を設定する</option>
+            <option value="clear">クリアする（空欄にする）</option>
+          </select>
+          <input x-show="classificationAction === 'set'"
+                 x-model="bulkClassification" type="text" class="input-sm"
+                 placeholder="分類名を入力" maxlength="100"
+                 style="width:150px;display:none;">
+        </div>
+      </div>
+
+      <div>
+        <label class="form-label">選択中</label>
+        <span style="font-size:14px;font-weight:600;"
+              x-text="$store.accountFilter.selectedIds.length + '件'">0件</span>
+      </div>
+
+      <button class="btn-primary" @click="applyBulk()" :disabled="saving">
+        一括設定を実行
+      </button>
+
+      <button class="btn-sm btn-cancel" @click="clearSelection()"
+              style="display:none;"
+              x-show="$store.accountFilter.selectedIds.length > 0">
+        選択解除
+      </button>
+
+    </div>
+
+  </div>
+
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th style="width:36px;text-align:center;">
+          <input type="checkbox"
+                 :checked="isAllSelected()"
+                 @change="toggleAll($event)"
+                 :title="isAllSelected() ? '全選択解除' : '表示中を全選択'">
+        </th>
+        <th>コード</th>
+        <th>名前</th>
+        <th>種別</th>
+        <th>分類</th>
+        <th>開始日</th>
+        <th class="text-right">初期残高</th>
+        <th class="text-right">調整金額</th>
+        <th>操作</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for acc in accounts %}
+      <tr x-data="accountRow(
+            {{ acc.id }},
+            '{{ acc.account_type }}',
+            {{ acc.classification | tojson | forceescape }},
+            '{{ acc.start_date.isoformat() if acc.start_date else '' }}',
+            {{ acc.initial_balance }},
+            {{ acc.adjustment_amount }},
+            '{{ acc.oldest_transaction_date.isoformat() if acc.oldest_transaction_date else '' }}'
+          )"
+          x-init="init()"
+          x-show="$store.accountFilter.type === '' || accountType === $store.accountFilter.type">
+        <td style="text-align:center;">
+          <input type="checkbox"
+                 :checked="$store.accountFilter.isSelected(id)"
+                 @change="$store.accountFilter.toggle(id)">
+        </td>
+        <td>{{ acc.code }}</td>
+        <td>{{ acc.name }}</td>
+
+        {# 種別 #}
+        <td>
+          <template x-if="!editing">
+            <span class="badge" :class="'badge-' + accountType" x-text="typeLabel(accountType)"></span>
+          </template>
+          <template x-if="editing">
+            <select x-model="editAccountType" class="input-sm">
+              <template x-for="t in $store.accountTypes" :key="t.code">
+                <option :value="t.code" x-text="t.label"></option>
+              </template>
+            </select>
+          </template>
+        </td>
+
+        {# 分類 #}
+        <td>
+          <template x-if="!editing">
+            <span :class="classification ? '' : 'text-muted'" x-text="classification || '—'"></span>
+          </template>
+          <template x-if="editing">
+            <input type="text" x-model="editClassification" class="input-sm" maxlength="100" placeholder="例: 貯蓄口座">
+          </template>
+        </td>
+
+        {# 開始日 #}
+        <td>
+          <template x-if="!editing">
+            <span :class="startDate ? '' : 'text-muted'"
+                  x-text="startDate ? startDate : (oldestDate ? oldestDate + '（最古取引日）' : '未設定')"></span>
+          </template>
+          <template x-if="editing">
+            <div>
+              <input type="date" x-model="editStartDate" class="input-sm">
+              <div x-show="oldestDate && !editStartDate" class="hint-text">
+                未入力時: <span x-text="oldestDate"></span>（最古取引日）を使用
+              </div>
+            </div>
+          </template>
+        </td>
+
+        {# 初期残高 #}
+        <td class="text-right">
+          <template x-if="!editing">
+            <span x-text="initialBalance.toLocaleString() + ' 円'"></span>
+          </template>
+          <template x-if="editing">
+            <input type="number" x-model.number="editInitialBalance" class="input-sm input-amount" step="1">
+          </template>
+        </td>
+
+        {# 調整金額 #}
+        <td class="text-right">
+          <template x-if="!editing">
+            <span :style="adjustmentAmount !== 0 ? 'color:#d97706;font-weight:600;' : ''"
+                  x-text="(adjustmentAmount > 0 ? '+' : '') + adjustmentAmount.toLocaleString() + ' 円'"></span>
+          </template>
+          <template x-if="editing">
+            <div>
+              <input type="number" x-model.number="editAdjustmentAmount" class="input-sm input-amount" step="1">
+              <div class="hint-text">初期残高とは別に加算される補正値</div>
+            </div>
+          </template>
+        </td>
+
+        {# 操作 #}
+        <td>
+          <template x-if="!editing">
+            <button class="btn-sm btn-edit" @click="startEdit()">編集</button>
+          </template>
+          <template x-if="editing">
+            <span class="btn-group">
+              <button class="btn-sm btn-save" @click="save()" :disabled="saving">
+                <span x-text="saving ? '保存中…' : '保存'"></span>
+              </button>
+              <button class="btn-sm btn-cancel" @click="cancelEdit()">キャンセル</button>
+            </span>
+          </template>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('alpine:init', () => {
+  Alpine.store('accountTypes', {{ account_types | tojson }});
+  Alpine.store('accountFilter', {
+    type: '',
+    selectedIds: [],
+    isSelected(id) { return this.selectedIds.includes(id); },
+    toggle(id) {
+      const idx = this.selectedIds.indexOf(id);
+      if (idx === -1) this.selectedIds.push(id);
+      else this.selectedIds.splice(idx, 1);
+    },
+    clear() { this.selectedIds = []; },
+  });
+});
+
+function accountBulkManager(allAccounts) {
+  return {
+    allAccounts,
+    message: '',
+    messageType: 'success',
+    bulkType: '',
+    classificationAction: 'none',
+    bulkClassification: '',
+    saving: false,
+    _flashTimer: null,
+
+    init() {
+      this._savedHandler = (e) => {
+        this._showMessage(e.detail.message, e.detail.type || 'success');
+      };
+      this._rowSavedHandler = (e) => {
+        this.allAccounts = this.allAccounts.map(a =>
+          a.id === e.detail.id ? { ...a, account_type: e.detail.account_type } : a
+        );
+      };
+      window.addEventListener('accountSaved', this._savedHandler);
+      window.addEventListener('accountRowSaved', this._rowSavedHandler);
+    },
+
+    destroy() {
+      window.removeEventListener('accountSaved', this._savedHandler);
+      window.removeEventListener('accountRowSaved', this._rowSavedHandler);
+    },
+
+    _showMessage(msg, type) {
+      this.message = msg;
+      this.messageType = type;
+      clearTimeout(this._flashTimer);
+      this._flashTimer = setTimeout(() => { this.message = ''; }, 3000);
+    },
+
+    visibleCount() {
+      const ft = Alpine.store('accountFilter').type;
+      if (!ft) return this.allAccounts.length;
+      return this.allAccounts.filter(a => a.account_type === ft).length;
+    },
+
+    visibleIds() {
+      const ft = Alpine.store('accountFilter').type;
+      if (!ft) return this.allAccounts.map(a => a.id);
+      return this.allAccounts.filter(a => a.account_type === ft).map(a => a.id);
+    },
+
+    isAllSelected() {
+      const vis = this.visibleIds();
+      if (vis.length === 0) return false;
+      const sel = Alpine.store('accountFilter').selectedIds;
+      return vis.every(id => sel.includes(id));
+    },
+
+    toggleAll(e) {
+      if (e.target.checked) {
+        Alpine.store('accountFilter').selectedIds = this.visibleIds();
+      } else {
+        Alpine.store('accountFilter').selectedIds = [];
+      }
+    },
+
+    clearSelection() {
+      Alpine.store('accountFilter').clear();
+    },
+
+    async applyBulk() {
+      const ids = Array.from(Alpine.store('accountFilter').selectedIds);
+      if (ids.length === 0) {
+        this._showMessage('対象行をチェックボックスで選択してください', 'error');
+        return;
+      }
+      const shouldUpdateType = this.bulkType !== '';
+      const shouldUpdateClassification = this.classificationAction !== 'none';
+      if (!shouldUpdateType && !shouldUpdateClassification) {
+        this._showMessage('種別または分類の変更内容を選択してください', 'error');
+        return;
+      }
+
+      const newClassification = this.classificationAction === 'set'
+        ? (this.bulkClassification.trim() || null)
+        : null;
+
+      this.saving = true;
+      try {
+        const body = { ids };
+        if (shouldUpdateType) body.account_type = this.bulkType;
+        if (shouldUpdateClassification) {
+          body.update_classification = true;
+          body.classification = newClassification;
+        }
+
+        const res = await fetch('/api/v1/accounts/bulk', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.detail || '一括設定に失敗しました');
+        }
+
+        this._showMessage(ids.length + '件を更新しました', 'success');
+        setTimeout(() => { window.location.reload(); }, 1200);
+      } catch (e) {
+        this._showMessage(e.message, 'error');
+      } finally {
+        this.saving = false;
+      }
+    },
+  };
+}
+
+function accountRow(id, accountType, classification, startDate, initialBalance, adjustmentAmount, oldestDate) {
+  return {
+    id,
+    accountType,
+    classification,
+    startDate,
+    initialBalance,
+    adjustmentAmount,
+    oldestDate,
+    editing: false,
+    saving: false,
+    editAccountType: '',
+    editClassification: '',
+    editStartDate: '',
+    editInitialBalance: 0,
+    editAdjustmentAmount: 0,
+
+    init() {},
+
+    destroy() {},
+
+    typeLabel(code) {
+      const t = (Alpine.store('accountTypes') || []).find(x => x.code === code);
+      return t ? t.label : code;
+    },
+
+    startEdit() {
+      this.editAccountType = this.accountType;
+      this.editClassification = this.classification || '';
+      this.editStartDate = this.startDate || this.oldestDate || '';
+      this.editInitialBalance = this.initialBalance;
+      this.editAdjustmentAmount = this.adjustmentAmount;
+      this.editing = true;
+    },
+
+    cancelEdit() {
+      this.editing = false;
+    },
+
+    async save() {
+      this.saving = true;
+      try {
+        const res = await fetch(`/api/v1/accounts/${this.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            account_type: this.editAccountType || null,
+            classification: this.editClassification.trim() || null,
+            start_date: this.editStartDate || null,
+            initial_balance: this.editInitialBalance ?? 0,
+            adjustment_amount: this.editAdjustmentAmount ?? 0,
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.detail || '保存に失敗しました');
+        }
+        const data = await res.json();
+        this.accountType = data.account_type || this.accountType;
+        this.classification = data.classification ?? null;
+        this.startDate = data.start_date || '';
+        this.initialBalance = data.initial_balance ?? 0;
+        this.adjustmentAmount = data.adjustment_amount ?? 0;
+        this.editing = false;
+
+        window.dispatchEvent(new CustomEvent('accountRowSaved', {
+          detail: { id: this.id, account_type: this.accountType }
+        }));
+        window.dispatchEvent(new CustomEvent('accountSaved', {
+          detail: { message: '保存しました', type: 'success' }
+        }));
+      } catch (e) {
+        alert(e.message);
+      } finally {
+        this.saving = false;
+      }
+    }
+  };
+}
+
+function typeRow(t) {
+  return {
+    editing: false,
+    saving: false,
+    deleting: false,
+    editCode: '',
+    editLabel: '',
+    editSortOrder: 0,
+
+    init() {},
+
+    startEdit() {
+      this.editCode = t.code;
+      this.editLabel = t.label;
+      this.editSortOrder = t.sort_order;
+      this.editing = true;
+    },
+
+    cancelEdit() {
+      this.editing = false;
+    },
+
+    async saveEdit() {
+      if (!this.editCode || !this.editLabel) return;
+      this.saving = true;
+      try {
+        const res = await fetch(`/api/v1/accounts/types/${t.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            code: this.editCode,
+            label: this.editLabel,
+            sort_order: this.editSortOrder,
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.detail || '更新に失敗しました');
+        }
+        const data = await res.json();
+        const types = Alpine.store('accountTypes');
+        const idx = types.findIndex(x => x.id === t.id);
+        if (idx !== -1) types[idx] = data;
+        t.code = data.code;
+        t.label = data.label;
+        t.sort_order = data.sort_order;
+        this.editing = false;
+      } catch (e) {
+        alert(e.message);
+      } finally {
+        this.saving = false;
+      }
+    },
+
+    async deleteType() {
+      if (!confirm(`種別「${t.label}」を削除しますか？`)) return;
+      this.deleting = true;
+      try {
+        const res = await fetch(`/api/v1/accounts/types/${t.id}`, {
+          method: 'DELETE',
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.detail || '削除に失敗しました');
+        }
+        const types = Alpine.store('accountTypes');
+        const idx = types.findIndex(x => x.id === t.id);
+        if (idx !== -1) types.splice(idx, 1);
+      } catch (e) {
+        alert(e.message);
+      } finally {
+        this.deleting = false;
+      }
+    }
+  };
+}
+
+function typeManager() {
+  return {
+    newCode: '',
+    newLabel: '',
+    newSortOrder: 0,
+    adding: false,
+    typeError: '',
+
+    async addType() {
+      this.typeError = '';
+      if (!this.newCode || !this.newLabel) return;
+      this.adding = true;
+      try {
+        const res = await fetch('/api/v1/accounts/types', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            code: this.newCode,
+            label: this.newLabel,
+            sort_order: this.newSortOrder,
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json();
+          throw new Error(err.detail || '追加に失敗しました');
+        }
+        const data = await res.json();
+        Alpine.store('accountTypes').push(data);
+        this.newCode = '';
+        this.newLabel = '';
+        this.newSortOrder = 0;
+      } catch (e) {
+        this.typeError = e.message;
+      } finally {
+        this.adding = false;
+      }
+    }
+  };
+}
+</script>
+{% endblock %}

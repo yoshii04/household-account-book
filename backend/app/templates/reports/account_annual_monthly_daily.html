@@ -1,0 +1,100 @@
+{% extends "base.html" %}
+{% block title %}アカウント別日別レポート（{{ data.year }}年{{ data.month }}月）{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>アカウント別日別レポート — {{ data.year }}年{{ data.month }}月</h1>
+  <a href="/reports/account-annual/monthly?year={{ data.year }}&start_year={{ start_year }}&end_year={{ end_year }}"
+     class="btn-secondary">← 月別に戻る</a>
+</div>
+
+<p class="subtitle" style="margin-bottom:12px;color:#64748b;font-size:13px;">
+  集計値：初回取引から各日末時点の累計残高（initial_balance 含む）
+</p>
+
+{% if not data.accounts %}
+<div class="card">
+  <p class="text-center">{{ data.year }}年{{ data.month }}月のデータがありません。</p>
+</div>
+{% else %}
+<div class="annual-wrap">
+  <table class="annual-table">
+    <thead>
+      <tr>
+        <th class="col-category" style="width:120px;">種別</th>
+        <th class="col-category">アカウント</th>
+        {% for d in data.days %}
+        <th class="col-year" style="min-width:72px;">{{ d }}日</th>
+        {% endfor %}
+        <th class="col-total">月末残高</th>
+      </tr>
+    </thead>
+    <tbody>
+
+      {% for group in data.grouped %}
+        {% for acc in group.accounts %}
+        <tr class="annual-parent-row">
+          {% if loop.first %}
+          <td rowspan="{{ group.accounts | length }}" style="vertical-align:middle; background:#f8f8f8; font-weight:bold; text-align:center;">
+            {{ group.type_label }}
+          </td>
+          {% endif %}
+          <td class="col-category">
+            <strong>{{ acc.name }}</strong>
+            {% if acc.start_date %}
+            <span style="font-size:11px;color:#94a3b8;margin-left:4px;">（{{ acc.start_date }} 以降）</span>
+            {% endif %}
+          </td>
+          {% for d in data.days %}
+          {% set bal = acc.cells.get(d | string, 0) %}
+          <td class="col-year {% if bal > 0 %}amount-income{% elif bal < 0 %}amount-expense{% endif %}">
+            {% if bal %}
+              {% if bal > 0 %}+{% endif %}¥{{ "{:,}".format(bal) }}
+            {% endif %}
+          </td>
+          {% endfor %}
+          <td class="col-total {% if acc.row_total > 0 %}amount-income{% elif acc.row_total < 0 %}amount-expense{% endif %}">
+            {% if acc.row_total %}
+              {% if acc.row_total > 0 %}+{% endif %}¥{{ "{:,}".format(acc.row_total) }}
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+
+        {# 種別小計行 #}
+        {% if data.grouped | length > 1 %}
+        <tr style="background:#f0f0f0; font-weight:bold;">
+          <td colspan="2" class="text-right" style="color:#555;">{{ group.type_label }} 小計</td>
+          {% for d in data.days %}
+          {% set sub = group.subtotal_cells.get(d | string, 0) %}
+          <td class="col-year {% if sub > 0 %}amount-income{% elif sub < 0 %}amount-expense{% endif %}">
+            {% if sub %}{% if sub > 0 %}+{% endif %}¥{{ "{:,}".format(sub) }}{% else %}—{% endif %}
+          </td>
+          {% endfor %}
+          {% set sub_total = group.subtotal_total %}
+          <td class="col-total {% if sub_total > 0 %}amount-income{% elif sub_total < 0 %}amount-expense{% endif %}">
+            {% if sub_total > 0 %}+{% endif %}¥{{ "{:,}".format(sub_total) }}
+          </td>
+        </tr>
+        {% endif %}
+      {% endfor %}
+
+      {# 合計行 #}
+      <tr class="annual-balance">
+        <td colspan="2" class="col-category">合計（累計）</td>
+        {% for d in data.days %}
+        {% set tot = data.day_totals.get(d | string, 0) %}
+        <td class="col-year {% if tot > 0 %}amount-income{% elif tot < 0 %}amount-expense{% endif %}">
+          {% if tot %}{% if tot > 0 %}+{% endif %}¥{{ "{:,}".format(tot) }}{% else %}—{% endif %}
+        </td>
+        {% endfor %}
+        <td class="col-total {% if data.grand_total > 0 %}amount-income{% elif data.grand_total < 0 %}amount-expense{% endif %}">
+          {% if data.grand_total > 0 %}+{% endif %}¥{{ "{:,}".format(data.grand_total) }}
+        </td>
+      </tr>
+
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}
