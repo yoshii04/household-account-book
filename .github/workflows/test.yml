@@ -84,7 +84,7 @@ jobs:
       - name: Run tests with coverage (PostgreSQL)
         working-directory: backend
         env:
-          TEST_DATABASE_URL: postgresql://test:test@localhost:5432/test
+          TEST_DATABASE_URL: postgresql+psycopg2://test:test@localhost:5432/test
         run: pytest --tb=short
 
       # ローカル開発の既定構成（SQLite in-memory）でも通ることを確認する
