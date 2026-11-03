@@ -94,7 +94,7 @@ jobs:
 
       - name: Upload coverage report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-html
           path: backend/htmlcov/
@@ -102,7 +102,7 @@ jobs:
 
       - name: Coverage summary (PR comment)
         if: github.event_name == 'pull_request'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-xml
           path: backend/coverage.xml
