@@ -137,7 +137,7 @@ app = FastAPI(title="家計簿アプリ", version="1.0.0")
 
 | 設定項目 | 型 | デフォルト値 | 説明 |
 |---------|-----|------------|------|
-| `database_url` | str | `postgresql://household_user:password@db:5432/household_db` | DB 接続 URL |
+| `database_url` | str | `postgresql+psycopg2://household_user:password@db:5432/household_db` | DB 接続 URL |
 | `secret_key` | str | `dev-secret-key` | セキュリティキー |
 | `debug` | bool | `False` | デバッグモード |
 
@@ -782,7 +782,7 @@ docker compose exec backend pytest -v       # 詳細出力
 docker compose exec backend pytest tests/test_api_phase4.py  # 特定ファイル
 
 # PostgreSQL で実行する場合（CI と同じ。専用の DB を用意すること）
-TEST_DATABASE_URL=postgresql://test:test@localhost:5432/test pytest
+TEST_DATABASE_URL=postgresql+psycopg2://test:test@localhost:5432/test pytest
 ```
 
 **カバレッジ設定（`backend/pytest.ini`）:**
@@ -810,7 +810,7 @@ TEST_DATABASE_URL=postgresql://test:test@localhost:5432/test pytest
 | 変数 | 値 | 説明 |
 |------|-----|------|
 | `DATABASE_URL` | `sqlite://` | アプリ本体の接続先（テストはフィクスチャが DB を作るため実質使われない） |
-| `TEST_DATABASE_URL` | `postgresql://test:test@localhost:5432/test` | PostgreSQL 実行ステップのみ指定。サービスコンテナの DB に接続する |
+| `TEST_DATABASE_URL` | `postgresql+psycopg2://test:test@localhost:5432/test` | PostgreSQL 実行ステップのみ指定。サービスコンテナの DB に接続する |
 | `SECRET_KEY` | `ci-secret-key` | CI 用ダミーキー |
 | `DEBUG` | `false` | — |
 
@@ -941,7 +941,7 @@ TEST_DATABASE_URL=postgresql://test:test@localhost:5432/test pytest
 
 | 変数名 | 設定場所 | デフォルト | 説明 |
 |--------|---------|-----------|------|
-| `DATABASE_URL` | docker-compose.yml / .env | `postgresql://household_user:{DB_PASSWORD}@db:5432/household_db` | DB 接続 URL |
+| `DATABASE_URL` | docker-compose.yml / .env | `postgresql+psycopg2://household_user:{DB_PASSWORD}@db:5432/household_db` | DB 接続 URL |
 | `DB_PASSWORD` | .env | （必須） | PostgreSQL パスワード |
 | `SECRET_KEY` | .env | `dev-secret-key` | セキュリティキー |
 | `DEBUG` | .env | `false` | デバッグモード |

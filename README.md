@@ -126,7 +126,7 @@ pip install -r requirements.txt
 pytest                                    # 既定は SQLite in-memory（PostgreSQL 不要）
 
 # PostgreSQL で実行する（CI と同じ。専用の DB を用意すること。テーブルを作成・削除します）
-TEST_DATABASE_URL=postgresql://test:test@localhost:5432/test pytest
+TEST_DATABASE_URL=postgresql+psycopg2://test:test@localhost:5432/test pytest
 
 pip install pip-audit && pip-audit -r requirements.txt   # 依存の脆弱性検査（CI と同じ）
 ```
