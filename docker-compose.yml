@@ -19,7 +19,7 @@ services:
   backend:
     build: ./backend
     environment:
-      DATABASE_URL: postgresql://household_user:${DB_PASSWORD}@db:5432/household_db
+      DATABASE_URL: postgresql+psycopg2://household_user:${DB_PASSWORD}@db:5432/household_db
       SECRET_KEY: ${SECRET_KEY}
       DEBUG: ${DEBUG:-false}
     volumes:
