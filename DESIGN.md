@@ -13,6 +13,7 @@
 3. [バックエンド層](#3-バックエンド層)
    - 3.1 [エントリーポイント](#31-エントリーポイント--appmainpy)
    - 3.2 [設定管理](#32-設定管理--appconfigpy)
+   - 3.2.1 [通知](#321-通知--appnotify)
    - 3.3 [データベース接続](#33-データベース接続--appdatabasepy)
 4. [データモデル層（models/）](#4-データモデル層models)
 5. [スキーマ層（schemas/）](#5-スキーマ層schemas)
@@ -50,6 +51,13 @@
 [Docker: db]
     PostgreSQL 16
     （categories / accounts / account_types / groups / transactions / import_logs）
+
+[Docker: scheduler]            ← backend と同じイメージ。ポートは公開しない
+    毎日 NOTIFY_TIME に `python -m app.notify.run daily` を別プロセスで実行
+    │ DB を読む（get_due_and_unrecorded_patterns）
+    │ HTTPS で送信のみ
+    ▼
+[Slack Incoming Webhook]
 ```
 
 **技術スタック**
@@ -76,18 +84,20 @@
 
 ### `docker-compose.yml`
 
-**役割:** 2つのサービス（`db`・`backend`）を定義し、開発環境をワンコマンドで起動する。
+**役割:** 3つのサービス（`db`・`backend`・`scheduler`）を定義し、開発環境をワンコマンドで起動する。
 
 | サービス | イメージ / ビルド | ポート | 役割 |
 |----------|-----------------|--------|------|
 | `db` | postgres:16-alpine | 127.0.0.1:5439:5432 | PostgreSQL データベース |
 | `backend` | `./backend/Dockerfile` | 127.0.0.1:8080:8000 | FastAPI アプリ本体 |
+| `scheduler` | `./backend/Dockerfile` | なし | 毎日 `NOTIFY_TIME` に通知を実行（`python -m app.notify.scheduler`） |
 
 **重要な設定:**
 - `backend` は `db` のヘルスチェック通過後に起動（`depends_on: condition: service_healthy`）
 - `./backend` をコンテナ `/app` にボリュームマウント → コード変更が即時反映（`--reload`）
 - `./frontend/static` → `/app/static` にマウントして静的ファイルを共有
 - `./data` → `/data` にマウントしてインポートファイルを配置可能
+- `scheduler` は `SECRET_KEY` / `DEBUG` を持たず、`./backend` を読み取り専用でマウントし、`restart: unless-stopped`
 
 ### `backend/Dockerfile`
 
@@ -101,6 +111,9 @@
 DB_PASSWORD=（PostgreSQL パスワード）
 SECRET_KEY=（セッション等の秘密鍵）
 DEBUG=true
+SLACK_WEBHOOK_URL=（空なら通知は無効）
+NOTIFY_TIME=22:30
+NOTIFY_SHOW_AMOUNT=true
 ```
 
 ### `db/init.sql`
@@ -140,8 +153,29 @@ app = FastAPI(title="家計簿アプリ", version="1.0.0")
 | `database_url` | str | `postgresql+psycopg2://household_user:password@db:5432/household_db` | DB 接続 URL |
 | `secret_key` | str | `dev-secret-key` | セキュリティキー |
 | `debug` | bool | `False` | デバッグモード |
+| `slack_webhook_url` | str | `""` | Slack Incoming Webhook の URL。空なら通知は無効 |
+| `notify_time` | str | `22:30` | 通知の実行時刻（JST, `HH:MM`）。検証は `scheduler` が行う |
+| `notify_show_amount` | str | `true` | 本文に金額を含めるか（`true` / `false`）。検証は `run daily` が行う |
 
 **利用方法:** `from app.config import settings` でシングルトンとしてアクセスする。
+
+---
+
+### 3.2.1 通知 — `app/notify/`
+
+**役割:** 定期支払いの「今日が支払日で未記録」「支払日を過ぎて未記録」を Slack に通知する（[ADR-0007](docs/adr/0007-pattern-payment-notification-via-slack.md)、[仕様書](docs/specs/auxiliary/spec_notifications.md)）。外部への送信のみで、ルート・画面・テーブルは持たない。
+
+| ファイル | 役割 |
+|---------|------|
+| `base.py` | `NotificationMessage` / `Notifier` 抽象 / `NotificationError`（URL を持たない）/ ログ設定 |
+| `messages.py` | 本文の組み立て（純粋関数）。パターン名・支払日・金額のみ。`& < >` をエスケープ |
+| `slack.py` | `SlackNotifier`（`httpx`、10 秒タイムアウト、最大 3 回試行）。Webhook URL の検証 |
+| `run.py` | CLI（`daily` / `daily --dry-run` / `test`）。1 回実行して終了 |
+| `scheduler.py` | 30 秒ごとに壁時計で判定し、`NOTIFY_TIME`（JST）に `run daily` を別プロセスで呼ぶ |
+
+**データフロー:** `scheduler` → `run daily`（別プロセス）→ `get_due_and_unrecorded_patterns(db, today_jst())`（ダッシュボードと同じ判定）→ `build_daily_message` → `SlackNotifier.send`。両方 0 件なら送らない。
+
+**設計上の要点:** 判定は既存の CRUD を呼ぶだけで再実装しない。Webhook URL は `hooks.slack.com` のみ許可し、ログ・例外・トレースバックに出さない。追い送信と送信履歴は持たない（「未記録」は翌日も通知される）。
 
 ---
 
@@ -945,6 +979,9 @@ TEST_DATABASE_URL=postgresql+psycopg2://test:test@localhost:5432/test pytest
 | `DB_PASSWORD` | .env | （必須） | PostgreSQL パスワード |
 | `SECRET_KEY` | .env | `dev-secret-key` | セキュリティキー |
 | `DEBUG` | .env | `false` | デバッグモード |
+| `SLACK_WEBHOOK_URL` | .env | （空） | Slack Incoming Webhook の URL（秘密情報）。空なら通知は無効 |
+| `NOTIFY_TIME` | .env | `22:30` | 通知の実行時刻（JST, `HH:MM`） |
+| `NOTIFY_SHOW_AMOUNT` | .env | `true` | 本文に金額を含めるか（`true` / `false`） |
 
 **ポート対応表:**
 

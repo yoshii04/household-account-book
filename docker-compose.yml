@@ -22,6 +22,9 @@ services:
       DATABASE_URL: postgresql+psycopg2://household_user:${DB_PASSWORD}@db:5432/household_db
       SECRET_KEY: ${SECRET_KEY}
       DEBUG: ${DEBUG:-false}
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      NOTIFY_TIME: ${NOTIFY_TIME:-22:30}
+      NOTIFY_SHOW_AMOUNT: ${NOTIFY_SHOW_AMOUNT-true}
     volumes:
       - ./backend:/app
       - ./data:/data
@@ -32,6 +35,25 @@ services:
       db:
         condition: service_healthy
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # 定期支払いの通知（ADR-0007）。backend と同じイメージで、コマンドだけが違う。
+  # ports は持たない。--reload を使わないため二重起動しない。
+  # 通知が使わない SECRET_KEY / DEBUG は渡さず、ソースは読み取り専用でマウントする。
+  # NOTIFY_SHOW_AMOUNT だけ ${VAR-既定} とし、空を true に読み替えない（不正値として扱う）。
+  scheduler:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+psycopg2://household_user:${DB_PASSWORD}@db:5432/household_db
+      SLACK_WEBHOOK_URL: ${SLACK_WEBHOOK_URL:-}
+      NOTIFY_TIME: ${NOTIFY_TIME:-22:30}
+      NOTIFY_SHOW_AMOUNT: ${NOTIFY_SHOW_AMOUNT-true}
+    volumes:
+      - ./backend:/app:ro
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    command: python -m app.notify.scheduler
 
 volumes:
   postgres_data:

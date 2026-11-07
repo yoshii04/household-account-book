@@ -52,6 +52,13 @@ docker compose exec db psql -U household_user -d household_db
 # マイグレーション追加
 docker compose exec backend alembic revision --autogenerate -m "説明"
 docker compose exec backend alembic upgrade head
+
+# 通知（Slack）。SLACK_WEBHOOK_URL が空なら daily は何もしない
+docker compose exec backend python -m app.notify.run daily --dry-run   # 送らずに本文を出す
+docker compose exec backend python -m app.notify.run daily             # 判定して送る
+docker compose exec backend python -m app.notify.run test              # 疎通確認
+docker compose logs -f scheduler                                       # 定期実行のログ
+docker compose up -d scheduler                                         # .env を変えたら再作成（restart では反映されない）
 ```
 
 ---
@@ -75,6 +82,7 @@ household-account-book/
 │       ├── database.py                 # SQLAlchemy セッション
 │       ├── jst.py                      # JST タイムゾーンユーティリティ
 │       ├── models/                     # ORM モデル
+│       ├── notify/                     # 定期支払いの Slack 通知（CLI: run.py、常駐: scheduler.py）
 │       ├── schemas/                    # Pydantic スキーマ
 │       ├── crud/                       # DB 操作ロジック
 │       ├── routers/                    # API + ページルーター
@@ -368,3 +376,15 @@ DB_PASSWORD=（PostgreSQL パスワード）
 SECRET_KEY=（任意の文字列）
 DEBUG=true
 ```
+
+通知（任意。[ADR-0007](docs/adr/0007-pattern-payment-notification-via-slack.md)）:
+
+```
+SLACK_WEBHOOK_URL=（Slack の Incoming Webhook URL。空なら通知は無効。秘密情報）
+NOTIFY_TIME=22:30            # 毎日の実行時刻（JST, HH:MM）。scheduler が使う
+NOTIFY_SHOW_AMOUNT=true      # true / false。それ以外は daily が送信せずエラー終了する
+```
+
+- Webhook URL は `https://hooks.slack.com/services/` 配下のみ受け付ける。ログ・例外に URL を出さないこと（`httpx` のロガーは `slack.py` が WARNING に抑える）
+- 通知は外部への送信のみ。受信するルート・公開ポートは追加しない
+- `scheduler` は `SECRET_KEY` / `DEBUG` を持たない。詳細は [spec_notifications.md](docs/specs/auxiliary/spec_notifications.md)
