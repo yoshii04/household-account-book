@@ -29,6 +29,7 @@
 | データ取込 | `Actual.TXT`（UTF-16LE・タブ区切り）の取り込み。カテゴリ階層・口座・グループは自動登録。資金移動の対向取引を自動生成 |
 | 取引管理 | 入力（親カテゴリ選択 → 直近10件を表示 → ワンクリックで転記）、検索、編集、削除、コピー |
 | 定期取引パターン | 毎月・毎年の支払いをパターン化。ダッシュボードで「今日の支払い」と「未記録」を表示 |
+| 通知 | 「今日が支払日で未記録」「支払日を過ぎて未記録」のパターンを、毎日決まった時刻（既定 22:30 JST）に Slack へ通知（任意。外部への送信のみ） |
 | レポート | 月次集計、前年同月比、カテゴリ×グループのマトリックス、年次・年度別トレンド、口座別・口座分類別の集計、口座残高 |
 | 出力 | Excel / `Actual.TXT` エクスポート、前月末レポートの PDF |
 | ローン | 元利均等返済のシミュレーションと、返済取引の一括登録 |
@@ -55,11 +56,15 @@ flowchart LR
 
     DB[("db コンテナ<br/>PostgreSQL 16")]
     Alembic["Alembic<br/>マイグレーション"]
+    Scheduler["scheduler コンテナ<br/>毎日 daily を実行"]
+    Slack["Slack<br/>Incoming Webhook"]
 
     Browser -- "HTTP :8080" --> Routers
     Models --> DB
     Services -- "pg_dump / psql" --> DB
     Alembic --> DB
+    Scheduler --> DB
+    Scheduler -- "HTTPS 送信のみ" --> Slack
 ```
 
 | レイヤー | 技術 |
@@ -106,6 +111,26 @@ docker compose exec backend alembic upgrade head
 3. 取り込み結果とスキップされた行を確認する
 
 `Actual.TXT` と `data/*.csv` は実データのため `.gitignore` の対象です。リポジトリにはコミットしないでください。
+
+### 5. 通知の設定（任意）
+
+定期支払いの「今日が支払日で未記録」「支払日を過ぎて未記録」を、毎日 1 回 Slack に通知できます。`.env` に Incoming Webhook の URL を設定すると有効になり、**空のままなら何も送りません。**
+
+```bash
+# .env
+SLACK_WEBHOOK_URL=（Slack の Incoming Webhook URL）
+NOTIFY_TIME=22:30          # 毎日の実行時刻（JST）
+NOTIFY_SHOW_AMOUNT=true    # false にすると本文から金額を省く
+
+docker compose up -d scheduler                              # .env を変えたら再作成する
+docker compose exec backend python -m app.notify.run test   # 疎通確認
+docker compose exec backend python -m app.notify.run daily --dry-run   # 本文だけ確認（送らない）
+```
+
+- 外部への送信のみで、受信するエンドポイントは追加していません（[ADR-0007](docs/adr/0007-pattern-payment-notification-via-slack.md)）
+- Webhook URL は秘密情報です。`.env` にのみ置き、コミットしないでください
+- Mac のスリープや Docker の停止で実行時刻に動いていなかった日は送られません（追い送信はしません）。「未記録」は翌日以降も通知されます
+- 詳細は[通知の仕様書](docs/specs/auxiliary/spec_notifications.md)を参照してください
 
 ## 開発
 
@@ -158,6 +183,7 @@ pip install pip-audit && pip-audit -r requirements.txt   # 依存の脆弱性検
 | [0004](docs/adr/0004-dashboard-due-patterns-exclude-recorded.md) | ダッシュボードの支払いバナーから記録済みを除く | 実装済み |
 | [0005](docs/adr/0005-ci-dependency-audit-and-ai-review-workflow.md) | CI に依存脆弱性スキャンを入れ、AI レビューを手動運用にする | 実装済み |
 | [0006](docs/adr/0006-no-authentication-for-personal-local-use.md) | 認証を導入せず、個人利用・ローカル稼働を前提とする | 採用 |
+| [0007](docs/adr/0007-pattern-payment-notification-via-slack.md) | 定期支払いの当日・未記録を Slack に通知する（外部への送信のみ） | 採用 |
 
 ## 注意事項
 

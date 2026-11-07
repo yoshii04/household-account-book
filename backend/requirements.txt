@@ -13,5 +13,5 @@ pytest==9.2.0
 pytest-mock==3.17.0
 pytest-asyncio==1.4.1
 pytest-cov==7.1.0
-httpx==0.28.1
+httpx==0.28.1  # テスト（TestClient）と通知（Slack 送信）で使用
 reportlab==5.1.0

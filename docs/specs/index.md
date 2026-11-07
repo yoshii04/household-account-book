@@ -33,3 +33,4 @@
 | C-4 | ローン返済シミュレーション | [spec_loans.md](auxiliary/spec_loans.md) | 低 |
 | C-5 | バックアップ・リストア | [spec_backup.md](auxiliary/spec_backup.md) | 低 |
 | C-6 | グループ管理 | [spec_groups.md](auxiliary/spec_groups.md) | 低 |
+| C-7 | 通知（定期支払いの当日・未記録を Slack に通知） | [spec_notifications.md](auxiliary/spec_notifications.md) | 中 |
