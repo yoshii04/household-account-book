@@ -1,10 +1,10 @@
-fastapi==0.164.0
+fastapi==0.165.0
 starlette==1.10.0
 uvicorn[standard]==0.54.0
 sqlalchemy==2.1.9
 alembic==1.20.1
 psycopg2-binary==2.9.13
-pydantic==2.14.3
+pydantic==2.14.4
 pydantic-settings==2.16.3
 python-multipart==0.0.34
 jinja2==3.1.6
@@ -14,4 +14,4 @@ pytest-mock==3.17.0
 pytest-asyncio==1.5.0
 pytest-cov==7.1.0
 httpx==0.28.1  # テスト（TestClient）と通知（Slack 送信）で使用
-reportlab==5.1.0
+reportlab==5.1.1
